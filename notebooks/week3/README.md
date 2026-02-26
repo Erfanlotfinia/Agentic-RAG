@@ -1,27 +1,27 @@
-# Week 3: Keyword Search First - The Critical Foundation
+# Module 3: Keyword Search First — The Critical Foundation
 
-> **🚨 The 90% Problem:** Most RAG systems jump straight to vector search and miss the foundation that powers the best retrieval systems. We're doing it right!
+> **The 90% Problem:** Most RAG systems jump straight to vector search and miss the foundation that powers the best retrieval systems. This module does it right.
 
-This folder contains the materials for Week 3 of the arXiv Paper Curator project, where we implement the **keyword search foundation** that professional RAG systems rely on using OpenSearch and BM25 scoring.
+This folder contains the materials for Module 3 of Falco, where we implement the **keyword search foundation** that professional RAG systems rely on using OpenSearch and BM25 scoring.
 
-## 🎯 Why Keyword Search First?
+## Why Keyword Search First?
 
-**The Professional Path:** Unlike tutorials that jump straight to vector embeddings, we build the foundation that successful companies use:
+**The Professional Path:** Unlike simple implementations that jump straight to vector embeddings, this system builds the foundation that successful companies use:
 
-1. **🔍 Exact Match Power:** Keywords excel at finding specific technical terms, paper IDs, and precise phrases
-2. **📊 Interpretable Results:** You can understand exactly why a paper was retrieved 
-3. **⚡ Speed & Efficiency:** BM25 is computationally fast and doesn't require expensive embedding models
-4. **📈 Production Reality:** Companies like Elasticsearch, Algolia, and enterprise search use keyword search as their foundation
+1. **Exact Match Power:** Keywords excel at finding specific technical terms, paper IDs, and precise phrases
+2. **Interpretable Results:** You can understand exactly why a paper was retrieved 
+3. **Speed & Efficiency:** BM25 is computationally fast and doesn't require expensive embedding models
+4. **Production Reality:** Companies like Elasticsearch, Algolia, and enterprise search use keyword search as their foundation
 
-**The Learning Path:**
+**The Implementation Path:**
 ```
-Week 3: Master BM25 keyword search    ← YOU ARE HERE
-Week 4: Add intelligent chunking
-Week 5: Introduce vector embeddings for hybrid retrieval  
-Week 6: Optimize the complete system
+Module 3: Master BM25 keyword search    ← YOU ARE HERE
+Module 4: Add intelligent chunking
+Module 5: Introduce vector embeddings for hybrid retrieval  
+Module 6: Optimize the complete system
 ```
 
-## 🚀 Before You Start
+## Before You Start
 
 **Essential Environment Setup:**
 ```bash
@@ -29,31 +29,29 @@ Week 6: Optimize the complete system
 cp .env.example .env
 
 # 2. Verify OpenSearch settings are properly configured
-# Your .env should contain these critical Week 3 settings:
+# Your .env should contain these critical Module 3 settings:
 # OPENSEARCH__HOST=http://opensearch:9200
 # OPENSEARCH__INDEX_NAME=arxiv-papers
 ```
 
-**Important:** Week 3 requires the `.env` file to be properly configured for OpenSearch connectivity and indexing. The defaults in `.env.example` work out of the box.
+**Important:** Module 3 requires the `.env` file to be properly configured for OpenSearch connectivity and indexing. The defaults in `.env.example` work out of the box.
 
 ## Contents
 
 ### `week3_opensearch.ipynb`
-A comprehensive Jupyter notebook that guides you through building the keyword search foundation:
+A comprehensive Jupyter notebook that covers building the keyword search foundation:
 
 1. **Infrastructure Validation**
-   - Verify all Week 1-2 services are running correctly
+   - Verify all Module 1-2 services are running correctly
    - OpenSearch cluster health and connectivity testing
-   - Environment setup for Week 3 search components
+   - Environment setup for Module 3 search components
 
 2. **OpenSearch Service Integration**
    - Building a production-grade search client with factory patterns
    - Implementing dependency injection with FastAPI lifespan management
    - Creating JSON-based index configurations with proper analyzers
 
-## 🔍 OpenSearch Dashboard in Action
-
-*You'll add your OpenSearch dashboard screenshot here showing real paper searches with BM25 scoring and result rankings.*
+## OpenSearch Dashboard in Action
 
 <p align="center">
   <img src="../../static/week3_opensearch_dashboard.png" alt="OpenSearch Dashboard Retrieving Papers" width="800">
@@ -101,51 +99,51 @@ A comprehensive Jupyter notebook that guides you through building the keyword se
    - Performance benchmarking and response time measurement
    - Production readiness assessment with monitoring and alerting
 
-**Week 3 Architecture:**
+**Module 3 Architecture:**
 
 <p align="center">
-  <img src="../../static/week3_opensearch_flow.png" alt="Week 3 OpenSearch Flow Architecture" width="800">
+  <img src="../../static/week3_opensearch_flow.png" alt="OpenSearch Flow Architecture" width="800">
   <br>
-  <em>Complete Week 3 architecture showing the OpenSearch integration flow</em>
+  <em>Complete Module 3 architecture showing the OpenSearch integration flow</em>
 </p>
 
 
 ## Key Features Implemented
 
-### 🔍 **Production-Grade Search System**
+### **Production-Grade Search System**
 - **BM25 Scoring**: Industry-standard relevance ranking algorithm
 - **Multi-field Search**: Query across title (3x boost), abstract (2x boost), and content (1x boost)
 - **Advanced Filtering**: Category filtering, date ranges, and custom field queries
 - **Real-time Highlighting**: Search term highlighting in results with HTML markup
 - **Pagination Support**: Efficient large result set handling with size/from parameters
 
-### 🏗️ **Clean Architecture Implementation**
+### **Clean Architecture Implementation**
 - **Factory Pattern**: Consistent service creation across all components
 - **Dependency Injection**: Proper service lifecycle management with FastAPI lifespan
 - **Query Builder Pattern**: Flexible search query construction for complex operations
 - **Error Handling**: Comprehensive exception management with graceful degradation
 
-### 📊 **Performance & Monitoring**
+### **Performance & Monitoring**
 - **Sub-100ms Search**: Optimized query performance for real-time applications
 - **Health Monitoring**: Cluster status, index statistics, and service availability
 - **Resource Limits**: PDF processing constraints to prevent memory issues
 - **Scalability**: Design patterns supporting horizontal scaling
 
-### 🔧 **Development Best Practices**
+### **Development Best Practices**
 - **Type Safety**: Full type hints throughout the codebase
 - **Testing**: End-to-end verification with realistic data scenarios
 - **Documentation**: Comprehensive docstrings and architectural explanations
-- **Code Quality**: Following established patterns from Week 1-2 implementations
+- **Code Quality**: Following established patterns from Module 1-2 implementations
 
 ## Expected Outcomes
 
-By completing Week 3, students will have:
+By completing Module 3, you will have:
 
 1. **Working Search System**: Fully functional OpenSearch BM25 search with 28+ indexed papers
 2. **RESTful API**: Complete search API with both simple and advanced query capabilities  
 3. **Production Architecture**: Clean, scalable code following industry best practices
 4. **Performance Insights**: Understanding of search optimization and monitoring strategies
-5. **End-to-End Pipeline**: Complete RAG system foundation ready for Week 4 development
+5. **End-to-End Pipeline**: Complete RAG system foundation ready for Module 4 development
 
 ## Success Criteria
 
@@ -159,7 +157,7 @@ By completing Week 3, students will have:
 
 ## What's Next?
 
-**Week 4 Preview**: Chunking Strategies and Hybrid Retrieval
+**Module 4 Preview**: Chunking Strategies and Hybrid Retrieval
 - Intelligent document chunking strategies for better context preservation
 - Combining keyword search (BM25) with vector embeddings for hybrid retrieval
 - Building the complete foundation for modern RAG systems
@@ -167,4 +165,4 @@ By completing Week 3, students will have:
 
 ---
 
-**Ready to build production-grade search? Let's get started with Week 3!** 🔍✨
+**Ready to build production-grade search? Let's get started with Module 3!**

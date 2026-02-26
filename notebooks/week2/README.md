@@ -1,16 +1,16 @@
-# Week 2: arXiv API Integration & PDF Processing
+# Module 2: arXiv API Integration & PDF Processing
 
-This folder contains the materials for Week 2 of the arXiv Paper Curator project, which focuses on building the core data ingestion pipeline that feeds fresh academic content into our RAG system.
+This folder contains the materials for Module 2 of Falco, which focuses on building the core data ingestion pipeline that feeds fresh academic content into the RAG system.
 
 ## Contents
 
 ### `week2_arxiv_integration.ipynb`
-A comprehensive Jupyter notebook that guides students through:
+A comprehensive Jupyter notebook that covers:
 
 1. **Infrastructure Validation**
-   - Verify all Week 1 services are running correctly
+   - Verify all Module 1 services are running correctly
    - Container health checks and fresh build verification
-   - Environment setup for Week 2 components
+   - Environment setup for Module 2 components
 
 2. **arXiv API Integration**
    - Building a robust client with rate limiting and retry logic
@@ -18,11 +18,11 @@ A comprehensive Jupyter notebook that guides students through:
    - Testing CS.AI category searches with proper API etiquette
 
 <p align="center">
-  <img src="../../static/week2_data_ingestion_flow.png" alt="Week 2 Data Ingestion Architecture" width="800">
+  <img src="../../static/week2_data_ingestion_flow.png" alt="Data Ingestion Architecture" width="800">
 </p>
 
 **Data Pipeline Overview:**
-- **MetadataFetcher**: 🎯 Main orchestrator coordinating the entire pipeline
+- **MetadataFetcher**: Main orchestrator coordinating the entire pipeline
 - **ArxivClient**: Rate-limited fetching with retry logic (3-second delays)
 - **PDFParserService**: Scientific PDF parsing with structured content extraction
 - **PaperRepository**: PostgreSQL integration with upsert operations
@@ -48,31 +48,31 @@ A comprehensive Jupyter notebook that guides students through:
    - Error logging and monitoring capabilities
    - Ready for automated daily ingestion
 
-## Learning Objectives
+## Key Capabilities
 
-By completing this week's materials, students will:
+By completing this module, you will be able to:
 
-- Master API integration with proper rate limiting and error handling
-- Learn PDF processing techniques for scientific documents
-- Understand database design patterns for research data storage
+- Integrate with external APIs using proper rate limiting and error handling
+- Process scientific PDFs for structured content extraction
+- Design database schemas for research data storage
 - Build robust data pipelines with comprehensive error handling
-- Gain experience with async Python programming patterns
-- Learn workflow automation concepts with Apache Airflow
-- Develop skills in production-grade data processing systems
+- Use async Python programming patterns
+- Automate workflows with Apache Airflow
+- Build production-grade data processing systems
 
 ## Key Technologies & Services
 
-### Core Services (Built This Week)
-- **arXiv API Client** - Fetches CS.AI papers with intelligent rate limiting
-- **PDF Parser (Docling)** - Extracts structured content from scientific PDFs
-- **Metadata Fetcher** - Orchestrates the complete processing pipeline
-- **Database Repository** - Handles PostgreSQL operations with SQLAlchemy
+### Core Services (Built This Module)
+- **arXiv API Client** — Fetches CS.AI papers with intelligent rate limiting
+- **PDF Parser (Docling)** — Extracts structured content from scientific PDFs
+- **Metadata Fetcher** — Orchestrates the complete processing pipeline
+- **Database Repository** — Handles PostgreSQL operations with SQLAlchemy
 
-### Infrastructure Dependencies (From Week 1)
-- **PostgreSQL 16** - Paper metadata and content storage
-- **FastAPI** - REST API endpoints for paper retrieval
-- **Apache Airflow** - Workflow orchestration and scheduling
-- **Docker Compose** - Service orchestration and networking
+### Infrastructure Dependencies (From Module 1)
+- **PostgreSQL 16** — Paper metadata and content storage
+- **FastAPI** — REST API endpoints for paper retrieval
+- **Apache Airflow** — Workflow orchestration and scheduling
+- **Docker Compose** — Service orchestration and networking
 
 ## Pipeline Architecture
 
@@ -86,7 +86,7 @@ arXiv Search Query → Rate Limited API Calls → PDF Downloads → Docling Pars
 
 ## Performance Characteristics
 
-**Week 2 System Capabilities:**
+**Module 2 System Capabilities:**
 - **arXiv API**: ~20 papers/minute (respecting 3-second rate limits)
 - **PDF Processing**: 2-5 seconds per paper (depends on PDF complexity)
 - **Database Storage**: ~100 papers/second (batch operations)
@@ -96,22 +96,21 @@ arXiv Search Query → Rate Limited API Calls → PDF Downloads → Docling Pars
 ## Target Audience
 
 This material is designed for:
-- **Data Engineers** learning research data pipeline construction
-- **Students** interested in academic research automation
+- **Data Engineers** building research data pipelines
 - **Developers** building content aggregation systems
 - **Researchers** wanting to automate literature discovery
 - **Anyone** building production data ingestion pipelines
 
 ## Time Commitment
 
-- **Fresh container build**: 10-15 minutes (required for Week 2 dependencies)
+- **Fresh container build**: 10-15 minutes (required for Module 2 dependencies)
 - **Notebook completion**: 45-60 minutes
 - **Pipeline testing**: 30-45 minutes
 - **Total**: 1.5-2 hours
 
 ## 📖 Additional Resources
 
-**Week 2 Blog Post:** [Building Robust Data Pipelines for Academic Research](https://jamwithai.substack.com/p/building-data-pipelines-academic-research)
+**Blog Post:** [Building Robust Data Pipelines for Academic Research](https://erfanfalco.substack.com/p/building-data-pipelines-academic-research)
 - Deep dive into arXiv API best practices
 - PDF processing strategies for scientific documents
 - Error handling patterns for production systems
@@ -120,10 +119,10 @@ This material is designed for:
 ## Important Notes
 
 ### Fresh Container Build Required
-Week 2 requires rebuilding containers with new dependencies:
+Module 2 requires rebuilding containers with new dependencies:
 
 ```bash
-# Shutdown and rebuild (REQUIRED for Week 2)
+# Shutdown and rebuild (REQUIRED for Module 2)
 docker compose down
 docker compose up --build
 
@@ -145,21 +144,19 @@ If you encounter issues:
 1. Ensure fresh containers are built (`docker compose up --build`)
 2. Check the troubleshooting sections in the notebook
 3. Review service health checks and logs
-4. Verify all Week 1 infrastructure is working
-5. Ask in Jam With AI substack chat channel
+4. Verify all Module 1 infrastructure is working
 
 ## Next Steps
 
-After completing Week 2, you will be ready to:
+After completing Module 2, you will be ready to:
 - Understand production data pipeline architecture
 - Handle real-world API integration challenges
 - Implement robust error handling and monitoring
-- Proceed to Week 3: OpenSearch Integration and Full-Text Search
-- Build confidence in handling complex data processing workflows
+- Proceed to Module 3: OpenSearch Integration and Full-Text Search
 
 ## Success Criteria
 
-✅ **Week 2 Complete When:**
+✅ **Module 2 Complete When:**
 - arXiv API client fetches papers with proper rate limiting
 - PDF download and caching works reliably
 - Docling parser extracts structured content from scientific papers

@@ -1,8 +1,8 @@
-# Week 5: Complete RAG System with LLM Integration
+# Module 5: Complete RAG System with LLM Integration
 
 ## Overview
 
-Week 5 completes our **production-grade RAG system** by integrating Ollama LLM with hybrid search. The system delivers **6x faster performance** (120s → 15-20s), real-time streaming, and includes a Gradio web interface.
+Module 5 completes the **production-grade RAG system** by integrating Ollama LLM with hybrid search. The system delivers **6x faster performance** (120s → 15-20s), real-time streaming, and includes a Gradio web interface.
 
 ## What We Built
 
@@ -15,7 +15,7 @@ Week 5 completes our **production-grade RAG system** by integrating Ollama LLM w
 ## Architecture
 
 <p align="center">
-  <img src="../../static/week5_rag_architecture.png" alt="Week 5 Complete RAG System Architecture" width="900">
+  <img src="../../static/week5_rag_architecture.png" alt="Complete RAG System Architecture" width="900">
   <br>
   <em>Complete RAG system with LLM generation layer (Ollama), hybrid retrieval pipeline, and Gradio interface</em>
 </p>
@@ -42,12 +42,12 @@ uv run python gradio_launcher.py
 
 ## API Endpoints
 
-### Standard RAG - `/api/v1/ask`
+### Standard RAG — `/api/v1/ask`
 - **Purpose**: Complete response with metadata
 - **Response Time**: 15-20 seconds
 - **Use Case**: Batch processing, API integrations
 
-### Streaming RAG - `/api/v1/stream`
+### Streaming RAG — `/api/v1/stream`
 - **Purpose**: Real-time token generation
 - **Time to First Token**: 2-3 seconds
 - **Use Case**: Interactive UIs, better UX
@@ -56,10 +56,10 @@ uv run python gradio_launcher.py
 ```json
 {
     "query": "Your question",
-    "top_k": 3,              // Chunks to retrieve (1-10)
-    "use_hybrid": true,      // BM25 + vector search
-    "model": "llama3.2:1b",  // LLM model
-    "categories": ["cs.AI"]  // Optional filter
+    "top_k": 3,
+    "use_hybrid": true,
+    "model": "llama3.2:1b",
+    "categories": ["cs.AI"]
 }
 ```
 
@@ -136,7 +136,7 @@ notebooks/week5/
 
 ## Resources
 
-- [Notebook Tutorial](./week5_complete_rag_system.ipynb)
+- [Implementation Notebook](./week5_complete_rag_system.ipynb)
 - [API Documentation](http://localhost:8000/docs)
 - [Gradio Interface](http://localhost:7861)
 - [Ollama Models](https://ollama.ai/library)

@@ -1,7 +1,10 @@
 [project]
-name = "moai-zero-to-rag"
-version = "0.1.0"
-description = "Mother-of-AI Phase-1-Zero to RAG"
+name = "falco"
+version = "1.0.0"
+description = "Falco — Production-ready Agentic RAG system for academic research. Hybrid search, LangGraph agents, and Telegram bot."
+authors = [
+    {name = "Erfan Falco"},
+]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi[standard]>=0.115.12",

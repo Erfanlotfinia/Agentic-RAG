@@ -57,7 +57,7 @@ class TelegramBot:
     async def _start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         await update.message.reply_text(
-            "Welcome to arXiv Paper Curator!\n\n"
+            "Welcome to Falco!\n\n"
             "Ask me questions about CS papers and I'll provide answers with sources.\n\n"
             "Commands:\n"
             "/help - Show this help\n"

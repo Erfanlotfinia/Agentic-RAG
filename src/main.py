@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     """
     Lifespan for the API.
     """
-    logger.info("Starting RAG API...")
+    logger.info("Starting Falco API...")
 
     settings = get_settings()
     app.state.settings = settings
@@ -72,7 +72,7 @@ async def lifespan(app: FastAPI):
     app.state.cache_client = make_cache_client(settings)
     logger.info("Services initialized: arXiv API client, PDF parser, OpenSearch, Embeddings, Ollama, Langfuse, Cache")
 
-    # Initialize Telegram bot (Week 7)
+    # Initialize Telegram bot
     telegram_service = make_telegram_service(
         opensearch_client=app.state.opensearch_client,
         embeddings_client=app.state.embeddings_service,
@@ -104,9 +104,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="arXiv Paper Curator API",
-    description="Personal arXiv CS.AI paper curator with RAG capabilities",
-    version=os.getenv("APP_VERSION", "0.1.0"),
+    title="Falco API",
+    description="Falco — Agentic RAG system for academic research with hybrid search and intelligent agents",
+    version=os.getenv("APP_VERSION", "1.0.0"),
     lifespan=lifespan,
 )
 

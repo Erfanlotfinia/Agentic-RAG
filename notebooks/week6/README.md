@@ -1,8 +1,8 @@
-# Week 6: Production Monitoring and Caching with Langfuse and Redis
+# Module 6: Production Monitoring and Caching with Langfuse and Redis
 
 ## Overview
 
-Week 6 adds production-grade monitoring and intelligent caching to our RAG system. We integrate Langfuse for complete pipeline observability and Redis for high-performance response caching.
+Module 6 adds production-grade monitoring and intelligent caching to the RAG system. We integrate Langfuse for complete pipeline observability and Redis for high-performance response caching.
 
 ## What We Built
 
@@ -14,9 +14,9 @@ Week 6 adds production-grade monitoring and intelligent caching to our RAG syste
 ## Architecture
 
 <p align="center">
-  <img src="../../static/week6_monitoring_and_caching.png" alt="Week 6 Monitoring & Caching Architecture" width="900">
+  <img src="../../static/week6_monitoring_and_caching.png" alt="Monitoring & Caching Architecture" width="900">
   <br>
-  <em>Week 6 architecture with Langfuse tracing and Redis caching integration</em>
+  <em>Module 6 architecture with Langfuse tracing and Redis caching integration</em>
 </p>
 
 ### Data Flow
@@ -117,4 +117,4 @@ curl "http://localhost:8000/api/v1/health"
 
 ---
 
-Week 6 transforms your RAG system into a production-grade service with 150-400x performance improvements and comprehensive observability.
+Module 6 transforms your RAG system into a production-grade service with 150-400x performance improvements and comprehensive observability.

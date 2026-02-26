@@ -1,18 +1,18 @@
-# Week 4: Document Chunking and Hybrid Search
+# Module 4: Document Chunking and Hybrid Search
 
 ## Overview
 
-Week 4 implements a **production-grade hybrid search system** that combines the precision of BM25 keyword search with the semantic understanding of vector embeddings. This system provides the foundation for retrieval-augmented generation (RAG) by intelligently breaking documents into searchable chunks and enabling multiple search modes.
+Module 4 implements a **production-grade hybrid search system** that combines the precision of BM25 keyword search with the semantic understanding of vector embeddings. This system provides the foundation for retrieval-augmented generation (RAG) by intelligently breaking documents into searchable chunks and enabling multiple search modes.
 
 ## What We Built
 
-### 🧩 **Section-Based Document Chunking**
+### **Section-Based Document Chunking**
 - **Intelligent Segmentation**: Leverages document structure (parsed sections) for natural chunk boundaries
 - **Context Preservation**: 100-word overlaps between chunks maintain semantic continuity
 - **Adaptive Processing**: Handles both structured (with sections) and unstructured (paragraph-based) documents
 - **Optimal Sizing**: Targets 600-word chunks with minimum 100-word threshold
 
-### 🔍 **Unified Hybrid Search System**
+### **Unified Hybrid Search System**
 - **Single Index Architecture**: One OpenSearch index (`arxiv-papers-chunks`) supports all search modes
 - **Multiple Search Types**:
   - **BM25 Keyword Search**: Fast (~50ms) traditional text matching
@@ -20,7 +20,7 @@ Week 4 implements a **production-grade hybrid search system** that combines the 
   - **Hybrid Search**: RRF (Reciprocal Rank Fusion) combining both approaches
 - **Production API**: RESTful endpoint `/api/v1/hybrid-search/` with comprehensive validation
 
-### 🤖 **Real Embedding Integration**
+### **Real Embedding Integration**
 - **Jina AI Embeddings**: Production-grade 1024-dimensional vectors optimized for retrieval
 - **Automatic Generation**: FastAPI endpoints automatically generate query embeddings
 - **Fallback Strategy**: Graceful degradation to BM25 when embeddings unavailable
@@ -31,9 +31,9 @@ Week 4 implements a **production-grade hybrid search system** that combines the 
 ### System Overview
 
 <p align="center">
-  <img src="../../static/week4_hybrid_opensearch.png" alt="Week 4 Hybrid Search Architecture" width="800">
+  <img src="../../static/week4_hybrid_opensearch.png" alt="Hybrid Search Architecture" width="800">
   <br>
-  <em>Complete Week 4 architecture showing hybrid search with chunking, embeddings, and RRF fusion</em>
+  <em>Complete Module 4 architecture showing hybrid search with chunking, embeddings, and RRF fusion</em>
 </p>
 
 ### Data Flow
@@ -41,7 +41,7 @@ Week 4 implements a **production-grade hybrid search system** that combines the 
 Raw Papers → PDF Parsing → Section Extraction → Chunking → Embedding → Indexing → Search
 ```
 
-The diagram above illustrates the complete Week 4 implementation:
+The diagram above illustrates the complete Module 4 implementation:
 - **Data Processing Pipeline**: arXiv papers flow through chunking and embedding generation
 - **Unified OpenSearch Index**: Single index supporting BM25, vector, and hybrid search modes  
 - **Hybrid Retrieval Pipeline**: RRF fusion combining keyword precision with semantic understanding
@@ -137,7 +137,7 @@ SECTION_BASED = True    # Use document structure when available
   "chunk_text": "Chunk content...",
   "chunk_id": "unique_chunk_identifier", 
   "section_name": "Introduction",
-  "embedding": [0.123, 0.456, ...],  // 1024 dimensions
+  "embedding": [0.123, 0.456, ...],
   "paper_categories": ["cs.AI", "cs.LG"],
   "published_date": "2025-08-25T23:43:33"
 }
@@ -327,7 +327,7 @@ curl -X POST "https://api.jina.ai/v1/embeddings" \
 
 ## Testing
 
-### **Running the Week 4 Notebook**
+### **Running the Module 4 Notebook**
 
 1. **Start Services**:
 ```bash
@@ -364,9 +364,9 @@ curl -X POST "http://localhost:8000/api/v1/hybrid-search/" \
   -d '{"query": "neural networks", "use_hybrid": true, "size": 3}'
 ```
 
-## Next Steps (Week 5)
+## Next Steps (Module 5)
 
-Week 4 provides the search foundation for Week 5's LLM integration:
+Module 4 provides the search foundation for Module 5's LLM integration:
 
 1. **LLM Integration**: Connect Ollama for answer generation
 2. **RAG Pipeline**: Query → Search → Context → Generate → Response  
@@ -401,7 +401,7 @@ src/
 
 notebooks/week4/
 ├── README.md                      # This document
-├── week4_hybrid_search.ipynb      # Interactive tutorial
+├── week4_hybrid_search.ipynb      # Implementation guide
 └── data/                          # Sample data directory
 ```
 
@@ -411,4 +411,4 @@ notebooks/week4/
 - **Jina AI Embeddings**: https://jina.ai/embeddings/
 - **FastAPI Documentation**: https://fastapi.tiangolo.com/
 - **Reciprocal Rank Fusion Paper**: https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
-- **Week 4 Notebook**: [week4_hybrid_search.ipynb](./week4_hybrid_search.ipynb)
+- **Module 4 Notebook**: [week4_hybrid_search.ipynb](./week4_hybrid_search.ipynb)

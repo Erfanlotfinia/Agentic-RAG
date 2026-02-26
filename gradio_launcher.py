@@ -1,6 +1,6 @@
 """
 Simple launcher for the Gradio interface.
-Run this script to start the web UI for the arXiv Paper Curator RAG system.
+Run this script to start the web UI for the Falco RAG system.
 """
 
 import sys

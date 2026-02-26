@@ -1,15 +1,15 @@
 # Airflow Configuration
 
-This directory contains Apache Airflow configuration and DAGs for the arXiv Paper Curator project.
+This directory contains Apache Airflow configuration and DAGs for Falco.
 
 <p align="center">
-  <img src="../static/week2_data_ingestion_flow.png" alt="Week 2 Data Ingestion Architecture" width="800">
+  <img src="../static/week2_data_ingestion_flow.png" alt="Data Ingestion Architecture" width="800">
 </p>
 
-## Current Setup (Week 2)
+## Current Setup
 
 ### Production-Ready DAGs
-- **hello_world_dag.py**: Basic health check DAG for Week 1
+- **hello_world_dag.py**: Basic health check DAG
 - **arxiv_paper_ingestion.py**: Main production DAG for automated arXiv paper fetching and processing
 
 ### Production Pipeline Features
@@ -27,8 +27,8 @@ airflow/
 ├── Dockerfile                          # Custom Airflow container with dependencies
 ├── requirements-airflow.txt            # Python dependencies for DAGs
 └── dags/
-    ├── hello_world_dag.py             # Week 1 health check DAG
-    ├── arxiv_paper_ingestion.py       # Week 2 production ingestion DAG
+    ├── hello_world_dag.py             # Health check DAG
+    ├── arxiv_paper_ingestion.py       # Production ingestion DAG
     └── arxiv_ingestion/
         └── tasks.py                   # Production pipeline tasks with async processing
 ```
@@ -62,7 +62,7 @@ The Airflow container is configured for cross-platform deployment:
 3. **PDF Processing**: Download and parse PDFs with Docling
 4. **Failed PDF Retry**: Handle any processing failures
 5. **Database Storage**: Store complete paper data with parsed content
-6. **OpenSearch Placeholders**: Prepare for Week 3+ search indexing
+6. **OpenSearch Indexing**: Index papers for search and retrieval
 7. **Daily Report**: Generate comprehensive processing statistics
 
 ### Pipeline Performance
@@ -86,7 +86,7 @@ PYTHONPATH=/opt/airflow/src
 - **Source Code**: Mounted from `../src` for service access
 - **Shared Network**: Communication with API and database services
 
-## Week 2 Implementation Status
+## Implementation Status
 
 ### ✅ Completed Features
 - Custom Docker container with all dependencies
@@ -97,8 +97,8 @@ PYTHONPATH=/opt/airflow/src
 - Rate limiting and retry logic for arXiv API compliance
 - Detailed logging and monitoring throughout pipeline
 
-### 🔄 Week 3+ Roadmap
-- **OpenSearch Integration**: Real search indexing (currently placeholders)
+### Roadmap
+- **OpenSearch Integration**: Extended search indexing capabilities
 - **Advanced Scheduling**: Multiple collection strategies
 - **Monitoring & Alerting**: Production observability
 - **Scale Optimization**: Higher concurrency for production workloads
