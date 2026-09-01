@@ -14,13 +14,19 @@ COPY src /app/src
 
 FROM python:3.12.8-slim AS final
 
-EXPOSE 8000
-ENV PYTHONUNBUFFERED=1
 ARG VERSION=1.0.0
-ENV APP_VERSION=$VERSION
+ENV APP_VERSION=$VERSION \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN groupadd --system --gid 10001 falco \
+    && useradd --system --uid 10001 --gid falco --no-create-home --home-dir /nonexistent falco
 
 WORKDIR /app
-COPY --from=base /app /app
+COPY --from=base --chown=falco:falco /app /app
 ENV PATH="/app/.venv/bin:$PATH"
+
+USER falco
+EXPOSE 8000
 
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
