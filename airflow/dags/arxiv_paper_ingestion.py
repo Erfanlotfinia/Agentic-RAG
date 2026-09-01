@@ -17,7 +17,6 @@ default_args = {
     "email_on_retry": False,
     "retries": 2,
     "retry_delay": timedelta(minutes=30),
-    "catchup": False,
 }
 
 
@@ -58,8 +57,12 @@ report_task = PythonOperator(
 cleanup_task = BashOperator(
     task_id="cleanup_temp_files",
     bash_command="""
-    echo "Cleaning up temporary files..."
-    find /tmp -name "*.pdf" -type f -mtime +30 -delete 2>/dev/null || true
+    set -e
+    cache_dir="${ARXIV__PDF_CACHE_DIR:-/tmp/falco-arxiv-pdfs}"
+    echo "Cleaning cached PDFs older than 30 days from ${cache_dir}..."
+    if [ -d "${cache_dir}" ]; then
+      find "${cache_dir}" -type f -name "*.pdf" -mtime +30 -delete
+    fi
     echo "Cleanup completed"
     """,
     dag=dag,
