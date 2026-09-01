@@ -57,7 +57,7 @@ viz = [
 
 [tool.ruff]
 line-length = 130
-exclude = ["notebooks/**", ".venv/**"]
+exclude = [".venv/**"]
 src = ["src", "tests"]
 lint.select = [
   "I",
@@ -71,5 +71,4 @@ env_files = ".env.test"
 [tool.mypy]
 explicit_package_bases = true
 ignore_errors = true
-
 
