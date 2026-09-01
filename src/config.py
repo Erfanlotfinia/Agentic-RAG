@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -30,14 +30,16 @@ class ArxivSettings(BaseConfigSettings):
 
     base_url: str = "https://export.arxiv.org/api/query"
     pdf_cache_dir: str = "./data/arxiv_pdfs"
-    rate_limit_delay: float = 3.0
-    timeout_seconds: int = 30
-    max_results: int = 15
+    rate_limit_delay: float = Field(3.0, ge=0.0)
+    timeout_seconds: int = Field(30, ge=1, le=300)
+    max_results: int = Field(250, ge=1, le=10000)
+    page_size: int = Field(100, ge=1, le=2000)
+    fail_on_truncation: bool = True
     search_category: str = "cs.AI"
-    download_max_retries: int = 3
-    download_retry_delay_base: float = 5.0
-    max_concurrent_downloads: int = 5
-    max_concurrent_parsing: int = 1
+    download_max_retries: int = Field(3, ge=1, le=10)
+    download_retry_delay_base: float = Field(5.0, ge=0.0, le=300.0)
+    max_concurrent_downloads: int = Field(5, ge=1, le=50)
+    max_concurrent_parsing: int = Field(1, ge=1, le=16)
 
     namespaces: dict = {
         "atom": "http://www.w3.org/2005/Atom",
@@ -47,9 +49,9 @@ class ArxivSettings(BaseConfigSettings):
 
     @field_validator("pdf_cache_dir")
     @classmethod
-    def validate_cache_dir(cls, v: str) -> str:
-        os.makedirs(v, exist_ok=True)
-        return v
+    def validate_cache_dir(cls, value: str) -> str:
+        os.makedirs(value, exist_ok=True)
+        return value
 
 
 class PDFParserSettings(BaseConfigSettings):
@@ -61,8 +63,8 @@ class PDFParserSettings(BaseConfigSettings):
         case_sensitive=False,
     )
 
-    max_pages: int = 30
-    max_file_size_mb: int = 20
+    max_pages: int = Field(30, ge=1, le=1000)
+    max_file_size_mb: int = Field(20, ge=1, le=500)
     do_ocr: bool = False
     do_table_structure: bool = True
 
@@ -93,7 +95,7 @@ class OpenSearchSettings(BaseConfigSettings):
 
     host: str = "http://localhost:9200"
     username: str = ""
-    password: str = ""
+    password: SecretStr = SecretStr("")
     use_ssl: bool = False
     verify_certs: bool = True
     ca_certs: Optional[str] = None
@@ -116,7 +118,7 @@ class LangfuseSettings(BaseConfigSettings):
     )
 
     public_key: str = ""
-    secret_key: str = ""
+    secret_key: SecretStr = SecretStr("")
     host: str = "http://localhost:3001"
     enabled: bool = False
     flush_at: int = 15
@@ -137,7 +139,7 @@ class RedisSettings(BaseConfigSettings):
 
     host: str = "localhost"
     port: int = 6379
-    password: str = ""
+    password: SecretStr = SecretStr("")
     db: int = 0
     decode_responses: bool = True
     socket_timeout: int = 30
@@ -154,8 +156,32 @@ class TelegramSettings(BaseConfigSettings):
         case_sensitive=False,
     )
 
-    bot_token: str = ""
+    bot_token: SecretStr = SecretStr("")
     enabled: bool = False
+
+
+class AuthSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="AUTH__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    enabled: bool = False
+    api_key: SecretStr = SecretStr("")
+    rate_limit_enabled: bool = False
+    rate_limit_requests: int = Field(60, ge=1, le=100000)
+    rate_limit_window_seconds: int = Field(60, ge=1, le=86400)
+
+    @model_validator(mode="after")
+    def validate_security_configuration(self):
+        if self.enabled and len(self.api_key.get_secret_value()) < 32:
+            raise ValueError("AUTH__API_KEY must contain at least 32 characters when authentication is enabled")
+        if self.rate_limit_enabled and not self.enabled:
+            raise ValueError("AUTH__RATE_LIMIT_ENABLED requires AUTH__ENABLED=true")
+        return self
 
 
 class Settings(BaseConfigSettings):
@@ -173,7 +199,7 @@ class Settings(BaseConfigSettings):
     ollama_model: str = "llama3.2:1b"
     ollama_timeout: int = 300
 
-    jina_api_key: str = ""
+    jina_api_key: SecretStr = SecretStr("")
 
     arxiv: ArxivSettings = Field(default_factory=ArxivSettings)
     pdf_parser: PDFParserSettings = Field(default_factory=PDFParserSettings)
@@ -182,13 +208,14 @@ class Settings(BaseConfigSettings):
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
 
     @field_validator("postgres_database_url")
     @classmethod
-    def validate_database_url(cls, v: str) -> str:
-        if not (v.startswith("postgresql://") or v.startswith("postgresql+psycopg2://")):
+    def validate_database_url(cls, value: str) -> str:
+        if not (value.startswith("postgresql://") or value.startswith("postgresql+psycopg2://")):
             raise ValueError("Database URL must start with 'postgresql://' or 'postgresql+psycopg2://'")
-        return v
+        return value
 
 
 def get_settings() -> Settings:
