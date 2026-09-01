@@ -1,7 +1,7 @@
 [project]
 name = "falco"
 version = "1.0.0"
-description = "Falco — Production-ready Agentic RAG system for academic research. Hybrid search, LangGraph agents, and Telegram bot."
+description = "Falco — Self-hosted Agentic RAG for technical research with hybrid retrieval, LangGraph workflows, and multi-channel access."
 authors = [
     {name = "Erfan Falco"},
 ]
