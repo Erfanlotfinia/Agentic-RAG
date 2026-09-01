@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
+from src.exceptions import OpenSearchException
 from src.services.opensearch.client import OpenSearchClient
 
 
@@ -67,6 +70,14 @@ def test_native_hybrid_search_applies_shared_filter_pagination_and_total():
     assert kwargs["params"] == {"search_pipeline": "hybrid-rrf-pipeline"}
     assert result["total"] == 42
     assert result["hits"][0]["chunk_id"] == "chunk-10"
+
+
+def test_unified_search_surfaces_backend_failures():
+    opensearch = _client_with_response({})
+    opensearch.client.search.side_effect = RuntimeError("backend unavailable")
+
+    with pytest.raises(OpenSearchException, match="Search backend request failed"):
+        opensearch.search_unified(query="rag", use_hybrid=False)
 
 
 def test_rrf_setup_checks_configured_search_pipeline_endpoint():
