@@ -1,4 +1,4 @@
-.PHONY: help start stop restart status logs health setup lock-check format lint test test-cov ci clean
+.PHONY: help start stop restart status logs health setup migrate lock-check format lint test test-cov compose-check build-check ci clean
 
 help: ## Show Falco development commands
 	@echo "Falco Agentic RAG commands:"
@@ -27,26 +27,35 @@ health: ## Fail unless the reference stack is ready
 		curl -fsS http://localhost:8080/health >/dev/null; echo "  Airflow: healthy"; \
 		curl -fsS http://localhost:11434/api/version >/dev/null; echo "  Ollama: healthy"
 
-setup: ## Install/update the local development environment
-	uv sync
+setup: ## Install the exact locked local development environment
+	uv sync --locked
+
+migrate: ## Apply Falco PostgreSQL schema migrations
+	uv run alembic upgrade head
 
 lock-check: ## Verify uv.lock matches pyproject.toml without modifying it
 	uv lock --check
 
 format: ## Format code
-	uv run ruff format
+	uv run ruff format .
 
-lint: ## Lint and type check without modifying source
+lint: ## Run deterministic static checks without modifying source
 	uv run ruff check .
-	uv run mypy src/
 
-test: ## Run tests
-	uv run pytest
+test: ## Run the deterministic unit/API suite
+	uv run pytest tests/unit tests/api
 
-test-cov: ## Run tests with coverage
-	uv run pytest --cov=src --cov-report=html
+test-cov: ## Run unit/API tests with coverage
+	uv run pytest tests/unit tests/api --cov=src --cov-report=html
 
-ci: lock-check lint test ## Run local release-quality checks
+compose-check: ## Validate the reference Compose configuration
+	docker compose config --quiet
+
+build-check: ## Build application and Airflow images
+	docker build -t falco-agentic-rag:ci .
+	docker build -t falco-airflow:ci ./airflow
+
+ci: lock-check lint test compose-check build-check ## Run local release-quality checks
 
 clean: ## Remove local containers and persistent volumes
 	docker compose down -v
