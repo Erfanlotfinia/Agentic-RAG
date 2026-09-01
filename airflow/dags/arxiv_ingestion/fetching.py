@@ -1,7 +1,8 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+
+from src.config import get_settings
 
 from .common import get_cached_services
 
@@ -15,18 +16,14 @@ def _resolve_target_date(context: dict) -> str:
     return (reference_time - timedelta(days=1)).strftime("%Y%m%d")
 
 
-async def run_paper_ingestion_pipeline(
-    target_date: str,
-    process_pdfs: bool = True,
-) -> dict:
-    """Async wrapper for the paper ingestion pipeline."""
+async def run_paper_ingestion_pipeline(target_date: str, process_pdfs: bool = True) -> dict:
+    """Fetch/process one calendar day and expose source completeness metadata."""
     arxiv_client, _, database, metadata_fetcher, _ = get_cached_services()
-
     max_results = arxiv_client.max_results
-    logger.info("Using configured max_results: %s", max_results)
+    logger.info("Using configured daily ingestion cap: %s", max_results)
 
     with database.get_session() as session:
-        return await metadata_fetcher.fetch_and_process_papers(
+        results = await metadata_fetcher.fetch_and_process_papers(
             max_results=max_results,
             from_date=target_date,
             to_date=target_date,
@@ -35,40 +32,41 @@ async def run_paper_ingestion_pipeline(
             db_session=session,
         )
 
+    available = arxiv_client.last_total_results
+    results["available_results"] = available
+    results["truncated"] = available is not None and int(results.get("papers_fetched", 0) or 0) < available
+    return results
+
 
 def fetch_daily_papers(**context):
-    """Fetch the previous calendar day's arXiv papers and store them in PostgreSQL.
-
-    Airflow's ``execution_date`` is the logical date (normally the start of the
-    data interval), so the target is derived from ``data_interval_end`` instead
-    of subtracting another day from the logical date.
-    """
+    """Fetch the previous calendar day's arXiv papers and store them in PostgreSQL."""
     logger.info("Starting daily paper fetching task")
-
     target_date = _resolve_target_date(context)
-    logger.info("Fetching papers for date: %s", target_date)
-
-    results = asyncio.run(
-        run_paper_ingestion_pipeline(
-            target_date=target_date,
-            process_pdfs=True,
-        )
-    )
+    results = asyncio.run(run_paper_ingestion_pipeline(target_date=target_date, process_pdfs=True))
 
     results["date"] = target_date
     ti = context.get("ti")
     if ti:
-        # Push the attempt details before raising so the all-done report task
-        # can explain partial persistence and operators can inspect the IDs.
         ti.xcom_push(key="fetch_results", value=results)
 
     fetched = int(results.get("papers_fetched", 0) or 0)
     stored = int(results.get("papers_stored", 0) or 0)
-    logger.info("Daily fetch attempt: %s fetched, %s stored for %s", fetched, stored, target_date)
+    available = results.get("available_results")
+    logger.info(
+        "Daily fetch attempt for %s: %s available, %s fetched, %s stored",
+        target_date,
+        available if available is not None else "unknown",
+        fetched,
+        stored,
+    )
 
     if stored != fetched:
+        raise RuntimeError(f"Incomplete PostgreSQL persistence for {target_date}: stored {stored} of {fetched} fetched papers")
+
+    if results.get("truncated") and get_settings().arxiv.fail_on_truncation:
         raise RuntimeError(
-            f"Incomplete PostgreSQL persistence for {target_date}: stored {stored} of {fetched} fetched papers"
+            f"arXiv ingestion cap truncated {target_date}: fetched {fetched} of {available} available papers. "
+            "Increase ARXIV__MAX_RESULTS or disable ARXIV__FAIL_ON_TRUNCATION only if bounded sampling is intentional."
         )
 
     return results
