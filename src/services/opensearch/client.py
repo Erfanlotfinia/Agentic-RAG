@@ -93,40 +93,36 @@ class OpenSearchClient:
             raise
 
     def _create_rrf_pipeline(self, force: bool = False) -> bool:
-        """Create RRF search pipeline for native hybrid search.
+        """Create the OpenSearch search pipeline used for native RRF."""
+        pipeline_id = HYBRID_RRF_PIPELINE["id"]
+        pipeline_path = f"/_search/pipeline/{pipeline_id}"
 
-        :param force: If True, recreate pipeline even if it exists
-        :returns: True if created, False if already exists
-        """
         try:
-            pipeline_id = HYBRID_RRF_PIPELINE["id"]
-
-            if force:
-                try:
-                    self.client.ingest.get_pipeline(id=pipeline_id)
-                    self.client.ingest.delete_pipeline(id=pipeline_id)
-                    logger.info(f"Deleted existing RRF pipeline: {pipeline_id}")
-                except Exception:
-                    pass
-
+            exists = False
             try:
-                self.client.ingest.get_pipeline(id=pipeline_id)
-                logger.info(f"RRF pipeline already exists: {pipeline_id}")
-                return False
+                self.client.transport.perform_request("GET", pipeline_path)
+                exists = True
             except Exception:
-                pass
+                exists = False
+
+            if exists and not force:
+                logger.info(f"RRF search pipeline already exists: {pipeline_id}")
+                return False
+
+            if exists and force:
+                self.client.transport.perform_request("DELETE", pipeline_path)
+                logger.info(f"Deleted existing RRF search pipeline: {pipeline_id}")
+
             pipeline_body = {
                 "description": HYBRID_RRF_PIPELINE["description"],
                 "phase_results_processors": HYBRID_RRF_PIPELINE["phase_results_processors"],
             }
-
-            self.client.transport.perform_request("PUT", f"/_search/pipeline/{pipeline_id}", body=pipeline_body)
-
+            self.client.transport.perform_request("PUT", pipeline_path, body=pipeline_body)
             logger.info(f"Created RRF search pipeline: {pipeline_id}")
             return True
 
         except Exception as e:
-            logger.error(f"Error creating RRF pipeline: {e}")
+            logger.error(f"Error creating RRF search pipeline: {e}")
             raise
 
     def search_papers(
@@ -263,7 +259,7 @@ class OpenSearchClient:
         categories: Optional[List[str]],
         min_score: float,
     ) -> Dict[str, Any]:
-        """Native OpenSearch 2.19 hybrid search with RRF and pagination."""
+        """Native OpenSearch 2.19 hybrid search with RRF, filtering, and pagination."""
         pagination_depth = min(max((from_ + size) * 2, size * 2), 10000)
         builder = QueryBuilder(
             query=query,
@@ -276,20 +272,22 @@ class OpenSearchClient:
         bm25_search_body = builder.build()
         bm25_query = bm25_search_body["query"]
 
-        hybrid_query = {
-            "hybrid": {
-                "pagination_depth": pagination_depth,
-                "queries": [
-                    bm25_query,
-                    {"knn": {"embedding": {"vector": query_embedding, "k": pagination_depth}}},
-                ],
-            }
+        hybrid_body = {
+            "pagination_depth": pagination_depth,
+            "queries": [
+                bm25_query,
+                {"knn": {"embedding": {"vector": query_embedding, "k": pagination_depth}}},
+            ],
         }
+        if categories:
+            # Hybrid-level filters are applied to every subquery, preventing the
+            # vector branch from reintroducing documents outside the requested categories.
+            hybrid_body["filter"] = {"terms": {"categories": categories}}
 
         search_body = {
             "from": from_,
             "size": size,
-            "query": hybrid_query,
+            "query": {"hybrid": hybrid_body},
             "_source": bm25_search_body["_source"],
             "highlight": bm25_search_body["highlight"],
         }
