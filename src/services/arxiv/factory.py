@@ -1,18 +1,14 @@
-from src.config import get_settings
+from typing import Optional
+
+from src.config import Settings, get_settings
 
 from .client import ArxivClient
 
 
-def make_arxiv_client() -> ArxivClient:
-    """Factory function to create an arXiv client instance.
-
-    :returns: An instance of the arXiv client
-    :rtype: ArxivClient
-    """
-    # Get settings from centralized config
-    settings = get_settings()
-
-    # Create arXiv client with explicit settings
-    client = ArxivClient(settings=settings.arxiv)
-
-    return client
+def make_arxiv_client(settings: Optional[Settings] = None) -> ArxivClient:
+    """Create an arXiv client using the shared ingestion and PDF safety settings."""
+    settings = settings or get_settings()
+    return ArxivClient(
+        settings=settings.arxiv,
+        max_pdf_size_mb=settings.pdf_parser.max_file_size_mb,
+    )
