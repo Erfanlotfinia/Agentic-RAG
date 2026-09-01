@@ -43,7 +43,6 @@ def create_retriever_tool(
             try:
                 query_embedding = await embeddings_client.embed_query(query)
             except Exception as exc:
-                # The agent should still be able to retrieve with BM25 when Jina is unavailable.
                 logger.warning("Query embedding failed; falling back to BM25: %s", exc)
                 effective_hybrid = False
 
@@ -55,6 +54,7 @@ def create_retriever_tool(
             use_hybrid=effective_hybrid,
         )
 
+        search_mode = "hybrid" if effective_hybrid and query_embedding is not None else "bm25"
         documents = []
         for hit in search_results.get("hits", []):
             arxiv_id = hit.get("arxiv_id", "")
@@ -68,13 +68,13 @@ def create_retriever_tool(
                         "score": float(hit.get("score", 0.0) or 0.0),
                         "source": _paper_url(arxiv_id) if arxiv_id else "",
                         "section": hit.get("section_name", hit.get("section_title", "")),
-                        "search_mode": "hybrid" if effective_hybrid else "bm25",
+                        "search_mode": search_mode,
                         "top_k": top_k,
                     },
                 }
             )
 
-        logger.info("Retrieved %s chunks", len(documents))
-        return json.dumps({"documents": documents}, ensure_ascii=False)
+        logger.info("Retrieved %s chunks using %s", len(documents), search_mode)
+        return json.dumps({"documents": documents, "search_mode": search_mode}, ensure_ascii=False)
 
     return retrieve_papers
