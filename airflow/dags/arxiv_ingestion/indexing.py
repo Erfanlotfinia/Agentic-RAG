@@ -10,34 +10,36 @@ logger = logging.getLogger(__name__)
 
 
 async def _index_papers_with_chunks(papers):
-    """Async helper to index papers with safe replacement semantics."""
+    """Index papers with safe replacement semantics and deterministic cleanup."""
     indexing_service = make_hybrid_indexing_service()
+    try:
+        papers_data = []
+        for paper in papers:
+            if hasattr(paper, "__dict__"):
+                paper_dict = {
+                    "id": str(paper.id),
+                    "arxiv_id": paper.arxiv_id,
+                    "title": paper.title,
+                    "authors": paper.authors,
+                    "abstract": paper.abstract,
+                    "categories": paper.categories,
+                    "published_date": paper.published_date,
+                    "raw_text": paper.raw_text,
+                    "sections": paper.sections,
+                }
+            else:
+                paper_dict = paper
+            papers_data.append(paper_dict)
 
-    papers_data = []
-    for paper in papers:
-        if hasattr(paper, "__dict__"):
-            paper_dict = {
-                "id": str(paper.id),
-                "arxiv_id": paper.arxiv_id,
-                "title": paper.title,
-                "authors": paper.authors,
-                "abstract": paper.abstract,
-                "categories": paper.categories,
-                "published_date": paper.published_date,
-                "raw_text": paper.raw_text,
-                "sections": paper.sections,
-            }
-        else:
-            paper_dict = paper
-        papers_data.append(paper_dict)
-
-    return await indexing_service.index_papers_batch(papers=papers_data, replace_existing=True)
+        return await indexing_service.index_papers_batch(papers=papers_data, replace_existing=True)
+    finally:
+        await indexing_service.close()
 
 
 def index_papers_hybrid(**context):
     """Index recently ingested papers with chunking and vector embeddings."""
+    database = make_database()
     try:
-        database = make_database()
         ti = context.get("ti")
         fetch_results = ti.xcom_pull(task_ids="fetch_daily_papers", key="fetch_results") if ti else None
 
@@ -70,8 +72,6 @@ def index_papers_hybrid(**context):
             stats = asyncio.run(_index_papers_with_chunks(papers))
 
             if ti:
-                # Persist failure statistics before raising so retries/operators
-                # can inspect exactly what happened in this attempt.
                 ti.xcom_push(key="hybrid_index_stats", value=stats)
 
             logger.info(
@@ -89,10 +89,11 @@ def index_papers_hybrid(**context):
                 )
 
             return stats
-
     except Exception:
         logger.exception("Failed to index papers for hybrid search")
         raise
+    finally:
+        database.teardown()
 
 
 def verify_hybrid_index(**context):
