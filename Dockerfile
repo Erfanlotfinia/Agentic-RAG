@@ -1,16 +1,15 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm AS base
 
 WORKDIR /app
-
 COPY pyproject.toml uv.lock ./
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=/app/uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml \
-    uv sync --frozen --no-dev
+    uv sync --locked --no-dev --no-install-project
 
 COPY src /app/src
+COPY alembic.ini /app/alembic.ini
+COPY alembic /app/alembic
 
 FROM python:3.12.14-slim-bookworm AS final
 
