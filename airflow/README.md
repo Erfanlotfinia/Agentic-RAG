@@ -2,10 +2,6 @@
 
 This directory contains the Apache Airflow runtime used by Falco Agentic RAG to discover, parse, store, and index research papers.
 
-<p align="center">
-  <img src="../docs/assets/ingestion-pipeline.png" alt="Falco ingestion pipeline" width="820">
-</p>
-
 ## Production DAG
 
 `arxiv_paper_ingestion.py` is the scheduled ingestion workflow. By default it runs Monday through Friday at 06:00 UTC.
@@ -74,7 +70,7 @@ See [`../docs/CONFIGURATION.md`](../docs/CONFIGURATION.md) for the complete prod
 
 ## Operations
 
-Use the Airflow UI and task logs to inspect pipeline failures and retries. The DAG uses bounded retries and continues to report pipeline statistics after normal runs.
+Use the Airflow UI and task logs to inspect pipeline failures and retries. The DAG uses bounded retries and reports pipeline statistics after normal runs.
 
 For deployment, backup, recovery, and hardening guidance see:
 

@@ -11,12 +11,6 @@
   <img src="https://img.shields.io/badge/Deployment-Self--Hosted-blue.svg" alt="Self Hosted">
 </div>
 
-<br>
-
-<p align="center">
-  <img src="docs/assets/platform-architecture.gif" alt="Falco Agentic RAG Architecture" width="780">
-</p>
-
 ## Product overview
 
 **Falco Agentic RAG** is a deployable research-intelligence platform for teams that need grounded answers from a continuously indexed technical knowledge base. The included reference deployment is optimized for arXiv computer-science research, while the architecture keeps ingestion, retrieval, generation, state, and observability modular.

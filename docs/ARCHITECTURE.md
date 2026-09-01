@@ -2,10 +2,6 @@
 
 Falco Agentic RAG is split into a knowledge pipeline and a serving platform. The separation keeps document processing asynchronous and makes query-time retrieval independent from the canonical document database.
 
-<p align="center">
-  <img src="assets/platform-architecture.gif" alt="Falco Agentic RAG platform architecture" width="780">
-</p>
-
 ## Knowledge pipeline
 
 ```text
@@ -57,10 +53,6 @@ query embedding ─► kNN ──┘
 ```
 
 If the query-embedding call fails, the request degrades to BM25 rather than failing the complete retrieval flow.
-
-<p align="center">
-  <img src="assets/hybrid-retrieval.png" alt="Falco hybrid retrieval architecture" width="820">
-</p>
 
 ## Agentic RAG
 
