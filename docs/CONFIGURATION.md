@@ -32,7 +32,7 @@ Do not replace these with single-underscore variants unless the setting is defin
 
 ## PostgreSQL
 
-`POSTGRES_DATABASE_URL` points to the canonical Falco document database. The application also supports pool-size and SQL logging settings through the top-level Settings model.
+`POSTGRES_DATABASE_URL` points to the canonical Falco document database. The reference Compose stack uses `POSTGRES_PASSWORD` as the single password source for the PostgreSQL service and constructs the API/Airflow container connection URLs from that value. If you run Falco outside Compose, set `POSTGRES_DATABASE_URL` explicitly for that environment.
 
 ## arXiv source connector
 
@@ -72,11 +72,27 @@ Ensure the configured model exists in Ollama before serving production traffic.
 
 `REDIS__*` controls host, port, authentication, database number, socket behavior, and TTL. The same TTL governs exact RAG cache entries and Agentic conversation history.
 
+The reference Compose stack enables Redis authentication with `REDIS__PASSWORD`; the API receives the same value through `.env`.
+
 ## Langfuse
 
-Client settings use `LANGFUSE__*` because they are consumed by Falco's Pydantic configuration. Self-hosted Langfuse service variables such as `LANGFUSE_SALT` and `LANGFUSE_ENCRYPTION_KEY` are separate Docker-service settings and intentionally use their server-specific names.
+Client settings use `LANGFUSE__*` because they are consumed by Falco's Pydantic configuration. Self-hosted Langfuse service variables are separate Docker-service settings and intentionally use their server-specific names.
 
-Tracing should remain disabled until valid public/secret keys are configured.
+The reference stack expects distinct secrets for the Langfuse application and its stateful dependencies, including:
+
+```text
+LANGFUSE_NEXTAUTH_SECRET=...
+LANGFUSE_SALT=...
+LANGFUSE_ENCRYPTION_KEY=...
+LANGFUSE_REDIS_PASSWORD=...
+LANGFUSE_POSTGRES_PASSWORD=...
+LANGFUSE_CLICKHOUSE_PASSWORD=...
+LANGFUSE_MINIO_ACCESS_KEY=...
+LANGFUSE_MINIO_SECRET_KEY=...
+LANGFUSE_INIT_USER_PASSWORD=...
+```
+
+Tracing should remain disabled until valid public/secret project keys are configured.
 
 ## Telegram
 
@@ -89,7 +105,9 @@ TELEGRAM__BOT_TOKEN=...
 
 ## Airflow
 
-Airflow 2.10.3 uses the standard webserver health endpoint at `http://localhost:8080/health`. The reference container creates the configured administrator account during startup from explicit environment variables:
+Falco currently pins Apache Airflow 2.10.3. Its webserver health endpoint is `http://localhost:8080/health`.
+
+The reference container creates the configured administrator account during startup from explicit environment variables:
 
 ```text
 AIRFLOW_ADMIN_USERNAME=admin
