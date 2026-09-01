@@ -25,7 +25,7 @@ from .nodes import (
     ainvoke_rewrite_query_step,
     continue_after_guardrail,
 )
-from .nodes.utils import get_latest_retrieved_documents
+from .nodes.utils import get_latest_retrieved_documents, get_latest_search_mode
 from .state import AgentState
 from .tools import create_retriever_tool
 
@@ -271,12 +271,15 @@ class AgenticRAGService:
             result = await graph.ainvoke(state_input, config=config, context=runtime_context)
             execution_time = time.time() - start_time
 
+            messages = result.get("messages", [])
             answer = self._extract_answer(result)
             sources = self._extract_sources(result)
             retrieval_attempts = result.get("retrieval_attempts", 0)
             reasoning_steps = self._extract_reasoning_steps(result)
-            latest_documents = get_latest_retrieved_documents(result.get("messages", []))
+            latest_documents = get_latest_retrieved_documents(messages)
             chunks_used = len(latest_documents) if sources else 0
+            requested_mode = "hybrid" if use_hybrid else "bm25"
+            search_mode = get_latest_search_mode(messages, default=requested_mode)
             trace_id = self.langfuse_tracer.get_trace_id(trace) if self.langfuse_tracer and trace else None
 
             if persist_session and self.cache_client:
@@ -292,6 +295,7 @@ class AgenticRAGService:
                         "answer": answer,
                         "sources_count": len(sources),
                         "chunks_used": chunks_used,
+                        "search_mode": search_mode,
                         "retrieval_attempts": retrieval_attempts,
                         "reasoning_steps": reasoning_steps,
                         "execution_time": execution_time,
@@ -305,7 +309,7 @@ class AgenticRAGService:
                 "answer": answer,
                 "sources": sources,
                 "chunks_used": chunks_used,
-                "search_mode": "hybrid" if use_hybrid else "bm25",
+                "search_mode": search_mode,
                 "reasoning_steps": reasoning_steps,
                 "retrieval_attempts": retrieval_attempts,
                 "rewritten_query": result.get("rewritten_query"),
