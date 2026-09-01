@@ -1,0 +1,78 @@
+name: Falco CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - product/falco-agentic-rag
+
+permissions:
+  contents: read
+
+concurrency:
+  group: falco-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.8"
+          enable-cache: true
+      - name: Verify lockfile
+        run: uv lock --check
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Static checks
+        run: uv run ruff check .
+      - name: Unit and API tests
+        run: uv run pytest tests/unit tests/api
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: rag_db
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: falco-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rag_user -d rag_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_DATABASE_URL: postgresql+psycopg2://rag_user:falco-ci-password@localhost:5432/rag_db
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.8"
+          enable-cache: true
+      - run: uv sync --locked --no-dev
+      - name: Upgrade fresh database
+        run: uv run alembic upgrade head
+      - name: Exercise downgrade and re-upgrade
+        run: |
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+  containers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate Compose
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+      - name: Build Falco API image
+        run: docker build -t falco-agentic-rag:ci .
+      - name: Build Falco Airflow image
+        run: docker build -t falco-airflow:ci ./airflow
