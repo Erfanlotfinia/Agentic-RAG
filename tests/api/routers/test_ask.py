@@ -55,7 +55,8 @@ async def test_stream_endpoint_basic(client):
     response = await client.post("/api/v1/stream", json={"query": "What is deep learning?", "model": "llama3.2:3b"})
 
     assert response.status_code == 200
-    assert "text/plain" in response.headers.get("content-type", "")
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    assert response.headers.get("x-accel-buffering") == "no"
     assert '"done": true' in response.text
 
 
