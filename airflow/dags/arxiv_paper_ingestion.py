@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
+from airflow.utils.trigger_rule import TriggerRule
 from arxiv_ingestion.fetching import fetch_daily_papers
 from arxiv_ingestion.indexing import index_papers_hybrid
 from arxiv_ingestion.reporting import generate_daily_report
@@ -51,6 +52,7 @@ index_hybrid_task = PythonOperator(
 report_task = PythonOperator(
     task_id="generate_daily_report",
     python_callable=generate_daily_report,
+    trigger_rule=TriggerRule.ALL_DONE,
     dag=dag,
 )
 
@@ -65,6 +67,7 @@ cleanup_task = BashOperator(
     fi
     echo "Cleanup completed"
     """,
+    trigger_rule=TriggerRule.ALL_DONE,
     dag=dag,
 )
 
