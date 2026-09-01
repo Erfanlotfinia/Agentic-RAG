@@ -68,11 +68,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare reference environment
+        run: cp .env.example .env
       - name: Validate Compose
+        run: docker compose config --quiet
+      - name: Smoke database bootstrap
         run: |
-          cp .env.example .env
-          docker compose config --quiet
+          docker compose up -d postgres
+          docker compose run --rm airflow-db-init
+          docker compose exec -T postgres psql -U rag_user -d airflow_db -c 'SELECT 1'
+          docker compose run --rm --build migrate
+          docker compose exec -T postgres psql -U rag_user -d rag_db -c 'SELECT version_num FROM alembic_version'
       - name: Build Falco API image
         run: docker build -t falco-agentic-rag:ci .
       - name: Build Falco Airflow image
         run: docker build -t falco-airflow:ci ./airflow
+      - name: Tear down smoke resources
+        if: always()
+        run: docker compose down -v --remove-orphans
