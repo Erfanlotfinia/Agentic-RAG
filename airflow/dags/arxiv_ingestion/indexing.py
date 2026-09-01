@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _index_papers_with_chunks(papers):
-    """Async helper to index papers with chunking and embeddings."""
+    """Async helper to index papers with safe replacement semantics."""
     indexing_service = make_hybrid_indexing_service()
 
     papers_data = []
@@ -31,28 +31,15 @@ async def _index_papers_with_chunks(papers):
             paper_dict = paper
         papers_data.append(paper_dict)
 
-    stats = await indexing_service.index_papers_batch(papers=papers_data, replace_existing=True)
-
-    return stats
+    return await indexing_service.index_papers_batch(papers=papers_data, replace_existing=True)
 
 
 def index_papers_hybrid(**context):
-    """Index papers with chunking and vector embeddings for hybrid search.
-
-    This task:
-    1. Fetches recently processed papers from PostgreSQL
-    2. Chunks them into overlapping segments (600 words, 100 overlap)
-    3. Generates embeddings using Jina AI
-    4. Indexes chunks with embeddings into OpenSearch
-    """
+    """Index recently ingested papers with chunking and vector embeddings."""
     try:
         database = make_database()
-
         ti = context.get("ti")
-
-        fetch_results = None
-        if ti:
-            fetch_results = ti.xcom_pull(task_ids="fetch_daily_papers", key="fetch_results")
+        fetch_results = ti.xcom_pull(task_ids="fetch_daily_papers", key="fetch_results") if ti else None
 
         with database.get_session() as session:
             from src.models.paper import Paper
@@ -67,41 +54,55 @@ def index_papers_hybrid(**context):
 
             if not papers:
                 logger.info("No papers to index for hybrid search")
-                return {"papers_indexed": 0, "chunks_created": 0}
+                stats = {
+                    "papers_processed": 0,
+                    "papers_failed": 0,
+                    "total_chunks_created": 0,
+                    "total_chunks_indexed": 0,
+                    "total_embeddings_generated": 0,
+                    "total_errors": 0,
+                }
+                if ti:
+                    ti.xcom_push(key="hybrid_index_stats", value=stats)
+                return stats
 
-            logger.info(f"Indexing {len(papers)} papers for hybrid search")
-
+            logger.info("Indexing %s papers for hybrid search", len(papers))
             stats = asyncio.run(_index_papers_with_chunks(papers))
 
+            if ti:
+                # Persist failure statistics before raising so retries/operators
+                # can inspect exactly what happened in this attempt.
+                ti.xcom_push(key="hybrid_index_stats", value=stats)
+
             logger.info(
-                f"Hybrid indexing complete: {stats['papers_processed']} papers, "
-                f"{stats['total_chunks_created']} chunks created, "
-                f"{stats['total_chunks_indexed']} chunks indexed"
+                "Hybrid indexing attempt: %s papers, %s failed, %s chunks created, %s chunks indexed",
+                stats["papers_processed"],
+                stats["papers_failed"],
+                stats["total_chunks_created"],
+                stats["total_chunks_indexed"],
             )
 
-            if ti:
-                ti.xcom_push(key="hybrid_index_stats", value=stats)
+            if stats["total_errors"] > 0 or stats["papers_failed"] > 0:
+                raise RuntimeError(
+                    f"Hybrid indexing incomplete: {stats['papers_failed']} paper(s) failed "
+                    f"with {stats['total_errors']} indexing error(s)"
+                )
 
             return stats
 
-    except Exception as e:
-        logger.error(f"Failed to index papers for hybrid search: {e}")
+    except Exception:
+        logger.exception("Failed to index papers for hybrid search")
         raise
 
 
 def verify_hybrid_index(**context):
     """Verify hybrid index health and get statistics."""
+    opensearch_client = make_opensearch_client_fresh()
     try:
-        opensearch_client = make_opensearch_client_fresh()
-
         stats = opensearch_client.client.indices.stats(index=opensearch_client.index_name)
-
         count = opensearch_client.client.count(index=opensearch_client.index_name)
-
         paper_count_query = {"aggs": {"unique_papers": {"cardinality": {"field": "arxiv_id"}}}, "size": 0}
-
         paper_count_response = opensearch_client.client.search(index=opensearch_client.index_name, body=paper_count_query)
-
         unique_papers = paper_count_response["aggregations"]["unique_papers"]["value"]
 
         result = {
@@ -113,13 +114,14 @@ def verify_hybrid_index(**context):
         }
 
         logger.info(
-            f"Hybrid index stats: {result['total_chunks']} chunks, "
-            f"{result['unique_papers']} papers, "
-            f"{result['avg_chunks_per_paper']:.1f} chunks/paper"
+            "Hybrid index stats: %s chunks, %s papers, %.1f chunks/paper",
+            result["total_chunks"],
+            result["unique_papers"],
+            result["avg_chunks_per_paper"],
         )
-
         return result
-
-    except Exception as e:
-        logger.error(f"Failed to verify hybrid index: {e}")
+    except Exception:
+        logger.exception("Failed to verify hybrid index")
         raise
+    finally:
+        opensearch_client.close()
