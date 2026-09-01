@@ -23,7 +23,7 @@ health: ## Check core service health
 	@echo "Checking Falco service health..."
 	@curl -s http://localhost:8000/api/v1/health | jq . || echo "Falco API not responding"
 	@curl -s http://localhost:9200/_cluster/health | jq . || echo "OpenSearch not responding"
-	@curl -s http://localhost:8080/api/v2/monitor/health || echo "Airflow not responding"
+	@curl -s http://localhost:8080/health | jq . || echo "Airflow not responding"
 	@curl -s http://localhost:11434/api/version | jq . || echo "Ollama not responding"
 
 setup: ## Install Python dependencies
