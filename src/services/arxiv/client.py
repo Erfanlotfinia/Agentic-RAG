@@ -99,8 +99,7 @@ class ArxivClient:
             "sortBy": sort_by,
             "sortOrder": sort_order,
         }
-        safe = ":+[]*"
-        return f"{self.base_url}?{urlencode(params, quote_via=quote, safe=safe)}"
+        return f"{self.base_url}?{urlencode(params, quote_via=quote, safe=':+[]*')}"
 
     def _parse_total_results(self, xml_data: str) -> Optional[int]:
         try:
@@ -127,11 +126,19 @@ class ArxivClient:
 
         while len(papers) < max_results:
             page_size = min(self._settings.page_size, max_results - len(papers), 2000)
-            url = self._build_query_url(search_query, offset, page_size, sort_by, sort_order)
-            xml_data = await self._get_text(url)
+            xml_data = await self._get_text(self._build_query_url(search_query, offset, page_size, sort_by, sort_order))
 
             if self._last_total_results is None:
                 self._last_total_results = self._parse_total_results(xml_data)
+                if (
+                    self._settings.fail_on_truncation
+                    and self._last_total_results is not None
+                    and self._last_total_results > max_results
+                ):
+                    raise ArxivAPIException(
+                        f"arXiv query has {self._last_total_results} matches, exceeding configured cap {max_results}. "
+                        "Increase ARXIV__MAX_RESULTS or explicitly disable ARXIV__FAIL_ON_TRUNCATION for bounded sampling."
+                    )
 
             page = self._parse_response(xml_data)
             if not page:
