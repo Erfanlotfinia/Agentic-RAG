@@ -1,5 +1,6 @@
 from typing import Optional
 
+from src.services.cache.client import CacheClient
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.langfuse.client import LangfuseTracer
 from src.services.ollama.client import OllamaClient
@@ -14,6 +15,7 @@ def make_agentic_rag_service(
     ollama_client: OllamaClient,
     embeddings_client: JinaEmbeddingsClient,
     langfuse_tracer: Optional[LangfuseTracer] = None,
+    cache_client: Optional[CacheClient] = None,
     model: Optional[str] = None,
     top_k: int = 3,
     use_hybrid: bool = True,
@@ -35,5 +37,6 @@ def make_agentic_rag_service(
         ollama_client=ollama_client,
         embeddings_client=embeddings_client,
         langfuse_tracer=langfuse_tracer,
+        cache_client=cache_client,
         graph_config=GraphConfig(**config_kwargs),
     )
