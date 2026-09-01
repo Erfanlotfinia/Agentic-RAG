@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -6,6 +7,7 @@ from typing import Dict, List
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from src.dependencies import CacheDep, EmbeddingsDep, LangfuseDep, OllamaDep, OpenSearchDep
+from src.exceptions import OpenSearchException
 from src.schemas.api.ask import AskRequest, AskResponse
 from src.services.langfuse.tracer import RAGTracer
 
@@ -43,7 +45,8 @@ async def _prepare_chunks_and_sources(
     effective_search_mode = "hybrid" if request.use_hybrid and query_embedding is not None else "bm25"
 
     with rag_tracer.trace_search(trace, request.query, request.top_k) as search_span:
-        search_results = opensearch_client.search_unified(
+        search_results = await asyncio.to_thread(
+            opensearch_client.search_unified,
             query=request.query,
             query_embedding=query_embedding,
             size=request.top_k,
@@ -156,6 +159,9 @@ async def ask_question(
 
             return response
 
+        except OpenSearchException:
+            logger.exception("Search backend unavailable during RAG request")
+            raise HTTPException(status_code=503, detail="Search service is currently unavailable")
         except HTTPException:
             raise
         except Exception:
@@ -172,7 +178,7 @@ async def ask_question_stream(
     langfuse_tracer: LangfuseDep,
     cache_client: CacheDep,
 ) -> StreamingResponse:
-    """Stream a grounded RAG response as server-sent data events."""
+    """Stream a grounded RAG response using Server-Sent Events."""
 
     async def generate_stream():
         rag_tracer = RAGTracer(langfuse_tracer)
@@ -259,10 +265,19 @@ async def ask_question_stream(
                         except Exception as exc:
                             logger.warning("Failed to store streaming response in cache: %s", exc)
 
+            except OpenSearchException:
+                logger.exception("Search backend unavailable during streaming RAG request")
+                yield f"data: {json.dumps({'error': 'Search service is currently unavailable', 'code': 'search_unavailable', 'done': True})}\n\n"
             except Exception:
                 logger.exception("Streaming RAG request failed")
-                yield f"data: {json.dumps({'error': 'Unable to process the streaming request'})}\n\n"
+                yield f"data: {json.dumps({'error': 'Unable to process the streaming request', 'done': True})}\n\n"
 
     return StreamingResponse(
-        generate_stream(), media_type="text/plain", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
