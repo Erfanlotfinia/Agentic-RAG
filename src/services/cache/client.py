@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 class CacheClient:
     """Redis cache for exact RAG responses and bounded Agentic session history."""
 
+    RESPONSE_CACHE_VERSION = "v1"
+    SESSION_STORAGE_VERSION = "v2"
+
     def __init__(self, redis_client: redis.Redis, settings: RedisSettings):
         self.redis = redis_client
         self.settings = settings
@@ -31,11 +34,11 @@ class CacheClient:
         }
         key_string = json.dumps(key_data, sort_keys=True)
         key_hash = hashlib.sha256(key_string.encode()).hexdigest()[:16]
-        return f"exact_cache:{key_hash}"
+        return f"exact_cache:{self.RESPONSE_CACHE_VERSION}:{key_hash}"
 
     def _generate_session_key(self, session_id: str) -> str:
         session_hash = hashlib.sha256(session_id.encode()).hexdigest()[:24]
-        return f"agentic_session:{session_hash}"
+        return f"agentic_session:{self.SESSION_STORAGE_VERSION}:{session_hash}"
 
     async def find_cached_response(self, request: AskRequest) -> Optional[AskResponse]:
         try:
