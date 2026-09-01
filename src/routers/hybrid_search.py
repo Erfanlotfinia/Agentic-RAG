@@ -1,7 +1,9 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException
 from src.dependencies import EmbeddingsDep, OpenSearchDep
+from src.exceptions import OpenSearchException
 from src.schemas.api.search import HybridSearchRequest, SearchHit, SearchResponse
 
 logger = logging.getLogger(__name__)
@@ -15,7 +17,7 @@ async def hybrid_search(
 ) -> SearchResponse:
     """Search indexed chunks using BM25 or hybrid retrieval."""
     try:
-        if not opensearch_client.health_check():
+        if not await asyncio.to_thread(opensearch_client.health_check):
             raise HTTPException(status_code=503, detail="Search service is currently unavailable")
 
         # Newest-first ordering and relevance fusion are different contracts.
@@ -32,7 +34,8 @@ async def hybrid_search(
         effective_hybrid = effective_hybrid and query_embedding is not None
         logger.info("Search: %r (mode: %s)", request.query, "hybrid" if effective_hybrid else "bm25")
 
-        results = opensearch_client.search_unified(
+        results = await asyncio.to_thread(
+            opensearch_client.search_unified,
             query=request.query,
             query_embedding=query_embedding,
             size=request.size,
@@ -73,6 +76,9 @@ async def hybrid_search(
         logger.info("Search completed: %s total matches", search_response.total)
         return search_response
 
+    except OpenSearchException:
+        logger.exception("Search backend unavailable")
+        raise HTTPException(status_code=503, detail="Search service is currently unavailable")
     except HTTPException:
         raise
     except Exception:
