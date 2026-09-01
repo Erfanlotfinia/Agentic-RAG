@@ -7,16 +7,8 @@ set -e
 : "${AIRFLOW_ADMIN_EMAIL:?AIRFLOW_ADMIN_EMAIL must be set}"
 : "${AIRFLOW_ADMIN_PASSWORD:?AIRFLOW_ADMIN_PASSWORD must be set}"
 
-echo "Cleaning up any existing Airflow processes..."
-pkill -f "airflow webserver" || true
-pkill -f "airflow scheduler" || true
-rm -f /opt/airflow/airflow-webserver.pid
-rm -f /opt/airflow/airflow-scheduler.pid
-
-sleep 2
-
-echo "Initializing Airflow database..."
-airflow db init
+echo "Migrating Airflow metadata database..."
+airflow db migrate
 
 echo "Ensuring the configured Airflow admin user exists..."
 if airflow users list --output json | python -c '
@@ -43,5 +35,5 @@ else
 fi
 
 echo "Starting Airflow webserver and scheduler..."
-airflow webserver --port 8080 --daemon &
+airflow webserver --port 8080 --daemon
 airflow scheduler
