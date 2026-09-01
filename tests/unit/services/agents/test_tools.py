@@ -19,6 +19,7 @@ async def test_create_retriever_tool_basic(mock_opensearch_client, mock_jina_emb
     documents = result["documents"]
 
     assert tool.name == "retrieve_papers"
+    assert result["search_mode"] == "hybrid"
     assert len(documents) == 2
     assert documents[0]["page_content"].startswith("Transformers")
     assert documents[0]["metadata"]["arxiv_id"] == "1706.03762"
@@ -40,7 +41,7 @@ async def test_retriever_tool_empty_results(mock_opensearch_client, mock_jina_em
     )
 
     result = json.loads(await tool.ainvoke({"query": "nonexistent topic"}))
-    assert result == {"documents": []}
+    assert result == {"documents": [], "search_mode": "hybrid"}
 
 
 @pytest.mark.asyncio
@@ -53,8 +54,9 @@ async def test_retriever_tool_bm25_mode_does_not_embed(mock_opensearch_client, m
         categories=["cs.AI"],
     )
 
-    await tool.ainvoke({"query": "test query"})
+    result = json.loads(await tool.ainvoke({"query": "test query"}))
 
+    assert result["search_mode"] == "bm25"
     mock_jina_embeddings_client.embed_query.assert_not_called()
     call_args = mock_opensearch_client.search_unified.call_args
     assert call_args.kwargs["size"] == 5
@@ -71,8 +73,9 @@ async def test_retriever_tool_embedding_failure_falls_back_to_bm25(mock_opensear
         use_hybrid=True,
     )
 
-    await tool.ainvoke({"query": "test"})
+    result = json.loads(await tool.ainvoke({"query": "test"}))
 
+    assert result["search_mode"] == "bm25"
     call_args = mock_opensearch_client.search_unified.call_args
     assert call_args.kwargs["query_embedding"] is None
     assert call_args.kwargs["use_hybrid"] is False
@@ -105,3 +108,4 @@ async def test_retriever_tool_normalizes_metadata(mock_opensearch_client, mock_j
     assert metadata["authors"] == ["Author One", "Author Two"]
     assert metadata["source"] == "https://arxiv.org/pdf/2301.00001.pdf"
     assert metadata["section"] == "Introduction"
+    assert metadata["search_mode"] == "hybrid"
