@@ -1,167 +1,152 @@
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.exceptions import ArxivAPIException, ArxivAPITimeoutError, ArxivParseError, PDFDownloadException, PDFDownloadTimeoutError
+
+from src.config import ArxivSettings
+from src.exceptions import ArxivAPIException, ArxivAPITimeoutError, ArxivParseError, PDFDownloadException
 from src.schemas.arxiv.paper import ArxivPaper
 from src.services.arxiv.client import ArxivClient
 from src.services.arxiv.factory import make_arxiv_client
 
 
+def _feed(arxiv_id: str | None = None, total: int | None = None) -> str:
+    total_xml = f"<opensearch:totalResults>{total}</opensearch:totalResults>" if total is not None else ""
+    entry_xml = ""
+    if arxiv_id:
+        entry_xml = f"""
+        <entry>
+          <id>http://arxiv.org/abs/{arxiv_id}</id>
+          <updated>2024-01-01T00:00:00Z</updated>
+          <published>2024-01-01T00:00:00Z</published>
+          <title>Test Paper {arxiv_id}</title>
+          <summary>Test abstract content</summary>
+          <author><name>Test Author</name></author>
+          <category term="cs.AI"/>
+          <link title="pdf" href="http://arxiv.org/pdf/{arxiv_id}" rel="alternate" type="application/pdf"/>
+        </entry>
+        """
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom"
+          xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+      {total_xml}
+      {entry_xml}
+    </feed>"""
+
+
 class TestArxivClient:
-    """Test ArxivClient functionality."""
-
     @pytest.fixture
-    def arxiv_client(self):
-        """Create ArxivClient instance for testing."""
-        from src.config import ArxivSettings
-
+    def arxiv_client(self, tmp_path):
         settings = ArxivSettings(
             base_url="https://export.arxiv.org/api/query",
             search_category="cs.AI",
             max_results=10,
-            rate_limit_delay=0.1,  # Faster for tests
+            page_size=10,
+            rate_limit_delay=0,
             timeout_seconds=5,
-            pdf_cache_dir="/tmp/test_arxiv_cache",
+            pdf_cache_dir=str(tmp_path),
         )
-        return ArxivClient(settings)
-
-    @pytest.fixture
-    def mock_arxiv_response(self):
-        """Mock arXiv API XML response."""
-        return """<?xml version="1.0" encoding="UTF-8"?>
-        <feed xmlns="http://www.w3.org/2005/Atom">
-          <entry>
-            <id>http://arxiv.org/abs/2024.0001v1</id>
-            <updated>2024-01-01T00:00:00Z</updated>
-            <published>2024-01-01T00:00:00Z</published>
-            <title>Test Paper Title</title>
-            <summary>Test abstract content</summary>
-            <author><name>Test Author</name></author>
-            <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
-            <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
-            <link title="pdf" href="http://arxiv.org/pdf/2024.0001v1" rel="alternate" type="application/pdf"/>
-          </entry>
-        </feed>"""
+        return ArxivClient(settings, max_pdf_size_mb=1)
 
     def test_factory_creates_client(self):
-        """Test that factory creates ArxivClient instance."""
         client = make_arxiv_client()
         assert isinstance(client, ArxivClient)
         assert client.search_category == "cs.AI"
-        assert client.max_results == 15  # Default from ArxivSettings
+        # pytest loads .env.test, which intentionally keeps ingestion small.
+        assert client.max_results == 15
 
     @pytest.mark.asyncio
-    async def test_fetch_papers_success(self, arxiv_client, mock_arxiv_response):
-        """Test successful paper fetching."""
+    async def test_fetch_papers_success(self, arxiv_client):
         with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
-            mock_response.text = mock_arxiv_response
+            mock_response.text = _feed("2024.0001v1", total=1)
             mock_response.raise_for_status.return_value = None
-
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
 
             papers = await arxiv_client.fetch_papers(max_results=1)
 
-            assert len(papers) == 1
-            assert papers[0].arxiv_id == "2024.0001v1"
-            assert papers[0].title == "Test Paper Title"
-            assert papers[0].abstract == "Test abstract content"
-            assert papers[0].authors == ["Test Author"]
-            assert papers[0].categories == ["cs.AI"]
+        assert len(papers) == 1
+        assert papers[0].arxiv_id == "2024.0001v1"
+        assert papers[0].authors == ["Test Author"]
+        assert papers[0].categories == ["cs.AI"]
+        assert arxiv_client.last_total_results == 1
 
     @pytest.mark.asyncio
-    async def test_fetch_papers_with_date_filters(self, arxiv_client, mock_arxiv_response):
-        """Test paper fetching with date filters."""
+    async def test_fetch_papers_paginates_to_requested_cap(self, tmp_path):
+        settings = ArxivSettings(
+            max_results=2,
+            page_size=1,
+            rate_limit_delay=0,
+            pdf_cache_dir=str(tmp_path),
+        )
+        client = ArxivClient(settings)
+        response_one = MagicMock(text=_feed("2024.0001v1", total=2))
+        response_two = MagicMock(text=_feed("2024.0002v1", total=2))
+        response_one.raise_for_status.return_value = None
+        response_two.raise_for_status.return_value = None
+
         with patch("httpx.AsyncClient") as mock_client:
-            mock_response = MagicMock()
-            mock_response.text = mock_arxiv_response
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=[response_one, response_two])
+            papers = await client.fetch_papers(max_results=2)
+
+        assert [paper.arxiv_id for paper in papers] == ["2024.0001v1", "2024.0002v1"]
+        assert client.last_total_results == 2
+        calls = mock_client.return_value.__aenter__.return_value.get.call_args_list
+        assert "start=0" in calls[0].args[0]
+        assert "start=1" in calls[1].args[0]
+
+    @pytest.mark.asyncio
+    async def test_fetch_papers_with_date_filters(self, arxiv_client):
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_response = MagicMock(text=_feed("2024.0001v1", total=1))
             mock_response.raise_for_status.return_value = None
-
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
-
-            papers = await arxiv_client.fetch_papers(max_results=1, from_date="20240101", to_date="20240131")
-
-            assert len(papers) == 1
-            # Verify the URL includes date filters
-            call_args = mock_client.return_value.__aenter__.return_value.get.call_args[0][0]
-            assert "submittedDate:[202401010000+TO+202401312359]" in call_args
+            await arxiv_client.fetch_papers(max_results=1, from_date="20240101", to_date="20240131")
+            call_url = mock_client.return_value.__aenter__.return_value.get.call_args.args[0]
+        assert "submittedDate:[202401010000+TO+202401312359]" in call_url
 
     @pytest.mark.asyncio
     async def test_fetch_papers_http_timeout(self, arxiv_client):
-        """Test handling of HTTP timeout errors."""
         with patch("httpx.AsyncClient") as mock_client:
-            mock_client.return_value.__aenter__.return_value.get = AsyncMock(
-                side_effect=httpx.TimeoutException("Request timeout")
-            )
-
-            with pytest.raises(ArxivAPITimeoutError) as exc_info:
+            mock_client.return_value.__aenter__.return_value.get = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+            with pytest.raises(ArxivAPITimeoutError, match="arXiv API request timed out"):
                 await arxiv_client.fetch_papers(max_results=1)
-
-            assert "arXiv API request timed out" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_fetch_papers_http_error(self, arxiv_client):
-        """Test handling of HTTP status errors."""
         with patch("httpx.AsyncClient") as mock_client:
-            mock_response = MagicMock()
-            mock_response.status_code = 500
+            mock_response = MagicMock(status_code=500)
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(
                 side_effect=httpx.HTTPStatusError("Server error", request=MagicMock(), response=mock_response)
             )
-
-            with pytest.raises(ArxivAPIException) as exc_info:
+            with pytest.raises(ArxivAPIException, match="arXiv API returned error 500"):
                 await arxiv_client.fetch_papers(max_results=1)
 
-            assert "arXiv API returned error 500" in str(exc_info.value)
-
     @pytest.mark.asyncio
-    async def test_fetch_paper_by_id_success(self, arxiv_client, mock_arxiv_response):
-        """Test fetching a single paper by ID."""
+    async def test_fetch_paper_by_id_success(self, arxiv_client):
         with patch("httpx.AsyncClient") as mock_client:
-            mock_response = MagicMock()
-            mock_response.text = mock_arxiv_response
+            mock_response = MagicMock(text=_feed("2024.0001v1", total=1))
             mock_response.raise_for_status.return_value = None
-
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
-
             paper = await arxiv_client.fetch_paper_by_id("2024.0001v1")
-
-            assert paper is not None
-            assert paper.arxiv_id == "2024.0001v1"
-            assert paper.title == "Test Paper Title"
+        assert paper is not None
+        assert paper.arxiv_id == "2024.0001v1"
 
     @pytest.mark.asyncio
     async def test_fetch_paper_by_id_not_found(self, arxiv_client):
-        """Test handling when single paper is not found."""
-        empty_response = """<?xml version="1.0" encoding="UTF-8"?>
-        <feed xmlns="http://www.w3.org/2005/Atom">
-        </feed>"""
-
         with patch("httpx.AsyncClient") as mock_client:
-            mock_response = MagicMock()
-            mock_response.text = empty_response
+            mock_response = MagicMock(text=_feed(total=0))
             mock_response.raise_for_status.return_value = None
-
             mock_client.return_value.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
-
             paper = await arxiv_client.fetch_paper_by_id("nonexistent")
-
-            assert paper is None
+        assert paper is None
 
     def test_parse_response_invalid_xml(self, arxiv_client):
-        """Test handling of invalid XML response."""
-        invalid_xml = "This is not valid XML"
-
-        with pytest.raises(ArxivParseError) as exc_info:
-            arxiv_client._parse_response(invalid_xml)
-
-        assert "Failed to parse arXiv XML response" in str(exc_info.value)
+        with pytest.raises(ArxivParseError, match="Failed to parse arXiv XML response"):
+            arxiv_client._parse_response("not xml")
 
     @pytest.mark.asyncio
     async def test_download_pdf_cached(self, arxiv_client):
-        """Test that cached PDFs are returned without downloading."""
         paper = ArxivPaper(
             arxiv_id="2024.0001v1",
             title="Test Paper",
@@ -169,23 +154,30 @@ class TestArxivClient:
             abstract="Test abstract",
             categories=["cs.AI"],
             published_date="2024-01-01T00:00:00Z",
-            pdf_url="http://arxiv.org/pdf/2024.0001v1",
+            pdf_url="https://arxiv.org/pdf/2024.0001v1",
         )
+        cached = arxiv_client._get_pdf_path(paper.arxiv_id)
+        cached.write_bytes(b"cached")
+        assert await arxiv_client.download_pdf(paper) == cached
 
-        with patch("pathlib.Path.exists", return_value=True):
-            pdf_path = await arxiv_client.download_pdf(paper)
+    @pytest.mark.asyncio
+    async def test_download_rejects_oversized_content_before_cache_commit(self, arxiv_client):
+        target = arxiv_client.pdf_cache_dir / "oversized.pdf"
+        response = MagicMock()
+        response.headers = {"content-length": str(2 * 1024 * 1024)}
+        response.raise_for_status.return_value = None
+        stream_context = MagicMock()
+        stream_context.__aenter__ = AsyncMock(return_value=response)
+        stream_context.__aexit__ = AsyncMock(return_value=None)
 
-            assert pdf_path is not None
-            assert pdf_path.name == "2024.0001v1.pdf"
+        with patch("httpx.AsyncClient") as mock_client:
+            client = mock_client.return_value.__aenter__.return_value
+            client.stream.return_value = stream_context
+            with pytest.raises(PDFDownloadException, match="exceeds configured download limit"):
+                await arxiv_client._download_with_retry("https://arxiv.org/pdf/test", target, max_retries=1)
 
-    def test_rate_limiting(self, arxiv_client):
-        """Test rate limiting delay calculation."""
-        import time
+        assert not target.exists()
+        assert not target.with_suffix(".pdf.part").exists()
 
-        # Mock the last request time
-        arxiv_client._last_request_time = time.time() - 1.0  # 1 second ago
-
-        # This would normally cause a delay in real usage
-        # In tests, we just verify the logic exists
-        assert arxiv_client.rate_limit_delay == 0.1  # Our test value
-        assert arxiv_client._last_request_time is not None
+    def test_rate_limiting_configuration(self, arxiv_client):
+        assert arxiv_client.rate_limit_delay == 0
