@@ -95,7 +95,7 @@ class OpenSearchSettings(BaseConfigSettings):
 
     host: str = "http://localhost:9200"
     username: str = ""
-    password: SecretStr = SecretStr("")
+    password: str = ""
     use_ssl: bool = False
     verify_certs: bool = True
     ca_certs: Optional[str] = None
@@ -118,7 +118,7 @@ class LangfuseSettings(BaseConfigSettings):
     )
 
     public_key: str = ""
-    secret_key: SecretStr = SecretStr("")
+    secret_key: str = ""
     host: str = "http://localhost:3001"
     enabled: bool = False
     flush_at: int = 15
@@ -139,7 +139,7 @@ class RedisSettings(BaseConfigSettings):
 
     host: str = "localhost"
     port: int = 6379
-    password: SecretStr = SecretStr("")
+    password: str = ""
     db: int = 0
     decode_responses: bool = True
     socket_timeout: int = 30
@@ -156,7 +156,7 @@ class TelegramSettings(BaseConfigSettings):
         case_sensitive=False,
     )
 
-    bot_token: SecretStr = SecretStr("")
+    bot_token: str = ""
     enabled: bool = False
 
 
@@ -199,7 +199,7 @@ class Settings(BaseConfigSettings):
     ollama_model: str = "llama3.2:1b"
     ollama_timeout: int = 300
 
-    jina_api_key: SecretStr = SecretStr("")
+    jina_api_key: str = ""
 
     arxiv: ArxivSettings = Field(default_factory=ArxivSettings)
     pdf_parser: PDFParserSettings = Field(default_factory=PDFParserSettings)
