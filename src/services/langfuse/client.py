@@ -47,16 +47,73 @@ class LangfuseTracer:
         try:
             from langfuse.langchain import CallbackHandler
 
-            return CallbackHandler(
-                trace_name=trace_name,
-                user_id=user_id,
-                session_id=session_id,
-                metadata=metadata,
-                tags=tags,
-            )
+            # In the v3 SDK, trace attributes are propagated by the enclosing
+            # root span/trace context. Keep handler construction minimal.
+            return CallbackHandler()
         except Exception as exc:
             logger.error("Error creating CallbackHandler: %s", exc)
             return None
+
+    def update_current_trace(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        input_data: Optional[Any] = None,
+        output: Optional[Any] = None,
+        name: Optional[str] = None,
+    ) -> None:
+        """Set Langfuse v3 trace-level attributes for the active root span."""
+        if not self.client:
+            return
+
+        try:
+            update_data: Dict[str, Any] = {}
+            if user_id is not None:
+                update_data["user_id"] = user_id
+            if session_id is not None:
+                update_data["session_id"] = session_id
+            if metadata is not None:
+                update_data["metadata"] = metadata
+            if input_data is not None:
+                update_data["input"] = input_data
+            if output is not None:
+                update_data["output"] = output
+            if name is not None:
+                update_data["name"] = name
+            if update_data:
+                self.client.update_current_trace(**update_data)
+        except Exception as exc:
+            logger.error("Error updating current Langfuse trace: %s", exc)
+
+    @contextmanager
+    def trace_rag_request(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """Create the root observation used by the conventional RAG tracer."""
+        if not self.client:
+            yield None
+            return
+
+        try:
+            with self.client.start_as_current_span(name="rag_request") as span:
+                span.update(input={"query": query}, metadata=metadata or {})
+                self.update_current_trace(
+                    user_id=user_id,
+                    session_id=session_id,
+                    metadata=metadata,
+                    input_data={"query": query},
+                    name="rag_request",
+                )
+                yield span
+        except Exception as exc:
+            logger.error("Error creating RAG request trace: %s", exc)
+            yield None
 
     @contextmanager
     def trace_langgraph_agent(
@@ -78,7 +135,14 @@ class LangfuseTracer:
             metadata=metadata,
             tags=tags,
         )
-        yield (None, handler)
+        with self.client.start_as_current_span(name=name) as span:
+            self.update_current_trace(
+                user_id=user_id,
+                session_id=session_id,
+                metadata=metadata,
+                name=name,
+            )
+            yield (span, handler)
 
     def get_trace_id(self, trace=None) -> Optional[str]:
         if not self.client:
@@ -129,12 +193,7 @@ class LangfuseTracer:
         input_data: Optional[Any] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ):
-        """Create a manually-ended child span for agent nodes.
-
-        Agent nodes historically call ``create_span``/``end_span``. Langfuse
-        3.x exposes ``start_span`` instead, so this adapter keeps node code
-        stable while using the SDK's actual API.
-        """
+        """Create a manually-ended child span for agent/RAG operations."""
         if not self.client:
             return None
         try:
@@ -153,13 +212,7 @@ class LangfuseTracer:
         if not span:
             return
         try:
-            update_data: Dict[str, Any] = {}
-            if output is not None:
-                update_data["output"] = output
-            if metadata:
-                update_data["metadata"] = metadata
-            if update_data:
-                span.update(**update_data)
+            self.update_span(span=span, output=output, metadata=metadata)
             span.end()
         except Exception as exc:
             logger.error("Error ending Langfuse span: %s", exc)
@@ -176,6 +229,7 @@ class LangfuseTracer:
             yield None
             return
 
+        generation = None
         try:
             generation = self.client.start_generation(
                 name=name,
@@ -187,6 +241,12 @@ class LangfuseTracer:
         except Exception as exc:
             logger.error("Error creating generation span: %s", exc)
             yield None
+        finally:
+            if generation:
+                try:
+                    generation.end()
+                except Exception:
+                    logger.debug("Generation already ended", exc_info=True)
 
     @contextmanager
     def start_span(
@@ -199,12 +259,19 @@ class LangfuseTracer:
             yield None
             return
 
+        span = None
         try:
             span = self.client.start_span(name=name, input=input_data, metadata=metadata or {})
             yield span
         except Exception as exc:
             logger.error("Error creating span: %s", exc)
             yield None
+        finally:
+            if span:
+                try:
+                    span.end()
+                except Exception:
+                    logger.debug("Span already ended", exc_info=True)
 
     def update_generation(
         self,
@@ -227,9 +294,7 @@ class LangfuseTracer:
                     }
                 if "latency_ms" in usage_metadata:
                     update_data["metadata"] = {"latency_ms": usage_metadata["latency_ms"]}
-
             generation.update(**update_data)
-            generation.end()
         except Exception as exc:
             logger.error("Error updating generation: %s", exc)
 
@@ -241,6 +306,7 @@ class LangfuseTracer:
         level: Optional[str] = None,
         status_message: Optional[str] = None,
     ):
+        """Update a span without ending it; lifecycle belongs to its caller/context."""
         if not span:
             return
 
@@ -256,6 +322,5 @@ class LangfuseTracer:
                 update_data["status_message"] = status_message
             if update_data:
                 span.update(**update_data)
-            span.end()
         except Exception as exc:
             logger.error("Error updating span: %s", exc)
