@@ -1,4 +1,9 @@
+from contextlib import nullcontext
+
 import pytest
+
+from src.routers.ask import _prepare_chunks_and_sources
+from src.schemas.api.ask import AskRequest
 
 
 async def test_ask_endpoint_basic(client):
@@ -63,3 +68,63 @@ async def test_stream_endpoint_basic(client):
 async def test_stream_endpoint_validation_errors(client):
     response = await client.post("/api/v1/stream", json={"query": "", "model": "llama3.2:3b"})
     assert response.status_code == 422
+
+
+class _StubTracer:
+    tracer = None
+
+    def trace_embedding(self, trace, query):
+        return nullcontext(None)
+
+    def trace_search(self, trace, query, top_k):
+        return nullcontext(None)
+
+    def end_search(self, span, chunks, arxiv_ids, total):
+        return None
+
+
+class _StubSearch:
+    def __init__(self):
+        self.use_hybrid = None
+
+    def search_unified(self, **kwargs):
+        self.use_hybrid = kwargs["use_hybrid"]
+        return {"total": 1, "hits": [{"arxiv_id": "2501.12345v2", "chunk_text": "retrieved context"}]}
+
+
+class _WorkingEmbeddings:
+    async def embed_query(self, query):
+        return [0.1, 0.2]
+
+
+class _FailingEmbeddings:
+    async def embed_query(self, query):
+        raise RuntimeError("embedding service unavailable")
+
+
+async def test_prepare_chunks_reports_hybrid_when_embedding_succeeds():
+    request = AskRequest(query="hybrid retrieval", use_hybrid=True)
+    search = _StubSearch()
+
+    chunks, sources, _, search_mode = await _prepare_chunks_and_sources(
+        request, search, _WorkingEmbeddings(), _StubTracer()
+    )
+
+    assert chunks
+    assert sources == ["https://arxiv.org/pdf/2501.12345.pdf"]
+    assert search.use_hybrid is True
+    assert search_mode == "hybrid"
+
+
+async def test_prepare_chunks_reports_bm25_when_embedding_falls_back():
+    request = AskRequest(query="fallback retrieval", use_hybrid=True)
+    search = _StubSearch()
+
+    chunks, sources, _, search_mode = await _prepare_chunks_and_sources(
+        request, search, _FailingEmbeddings(), _StubTracer()
+    )
+
+    assert chunks
+    assert sources == ["https://arxiv.org/pdf/2501.12345.pdf"]
+    assert search.use_hybrid is False
+    assert search_mode == "bm25"
