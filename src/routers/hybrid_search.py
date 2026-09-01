@@ -26,8 +26,8 @@ async def hybrid_search(
             try:
                 query_embedding = await embeddings_service.embed_query(request.query)
                 logger.info("Generated query embedding for hybrid search")
-            except Exception as e:
-                logger.warning(f"Failed to generate embeddings, falling back to BM25: {e}")
+            except Exception as exc:
+                logger.warning("Failed to generate embeddings, falling back to BM25: %s", exc)
 
         effective_hybrid = effective_hybrid and query_embedding is not None
         logger.info("Search: %r (mode: %s)", request.query, "hybrid" if effective_hybrid else "bm25")
@@ -75,6 +75,6 @@ async def hybrid_search(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Hybrid search error: {e}")
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+    except Exception:
+        logger.exception("Search request failed")
+        raise HTTPException(status_code=500, detail="Unable to execute the search request")
