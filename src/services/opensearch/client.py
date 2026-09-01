@@ -86,8 +86,6 @@ class OpenSearchClient:
             return False
 
         except Exception as e:
-            # Handle race condition when multiple workers start simultaneously:
-            # all check exists() -> False, all try to create, only one succeeds.
             if "resource_already_exists_exception" in str(e):
                 logger.info(f"Hybrid index already exists (created by another worker): {self.index_name}")
                 return False
@@ -148,7 +146,6 @@ class OpenSearchClient:
         :returns: Search results
         """
         try:
-            # Build filter
             filter_clause = []
             if categories:
                 filter_clause.append({"terms": {"categories": categories}})
@@ -189,26 +186,29 @@ class OpenSearchClient:
         use_hybrid: bool = True,
         min_score: float = 0.0,
     ) -> Dict[str, Any]:
-        """Unified search method supporting BM25, vector, and hybrid modes.
+        """Unified search method supporting BM25 and native hybrid modes.
 
-        :param query: Text query for search
-        :param query_embedding: Optional embedding for vector/hybrid search
-        :param size: Number of results to return
-        :param from_: Offset for pagination
-        :param categories: Optional category filter
-        :param latest: Sort by date instead of relevance
-        :param use_hybrid: If True and embedding provided, use hybrid search
-        :param min_score: Minimum score threshold
-        :returns: Search results
+        ``latest=True`` explicitly selects date-sorted BM25 because relevance
+        fusion and newest-first sorting are different ordering contracts.
         """
         try:
-            # If no embedding provided or hybrid disabled, use BM25 only
-            if not query_embedding or not use_hybrid:
-                return self._search_bm25_only(query=query, size=size, from_=from_, categories=categories, latest=latest)
+            if latest or not query_embedding or not use_hybrid:
+                return self._search_bm25_only(
+                    query=query,
+                    size=size,
+                    from_=from_,
+                    categories=categories,
+                    latest=latest,
+                    min_score=min_score,
+                )
 
-            # Use native OpenSearch hybrid search with RRF pipeline
             return self._search_hybrid_native(
-                query=query, query_embedding=query_embedding, size=size, categories=categories, min_score=min_score
+                query=query,
+                query_embedding=query_embedding,
+                size=size,
+                from_=from_,
+                categories=categories,
+                min_score=min_score,
             )
 
         except Exception as e:
@@ -216,7 +216,13 @@ class OpenSearchClient:
             return {"total": 0, "hits": []}
 
     def _search_bm25_only(
-        self, query: str, size: int, from_: int, categories: Optional[List[str]], latest: bool
+        self,
+        query: str,
+        size: int,
+        from_: int,
+        categories: Optional[List[str]],
+        latest: bool,
+        min_score: float = 0.0,
     ) -> Dict[str, Any]:
         """Pure BM25 search implementation."""
         builder = QueryBuilder(
@@ -225,9 +231,11 @@ class OpenSearchClient:
             from_=from_,
             categories=categories,
             latest_papers=latest,
-            search_chunks=True,  # Enable chunk search mode
+            search_chunks=True,
         )
         search_body = builder.build()
+        if min_score > 0:
+            search_body["min_score"] = min_score
 
         response = self.client.search(index=self.index_name, body=search_body)
 
@@ -247,26 +255,47 @@ class OpenSearchClient:
         return results
 
     def _search_hybrid_native(
-        self, query: str, query_embedding: List[float], size: int, categories: Optional[List[str]], min_score: float
+        self,
+        query: str,
+        query_embedding: List[float],
+        size: int,
+        from_: int,
+        categories: Optional[List[str]],
+        min_score: float,
     ) -> Dict[str, Any]:
-        """Native OpenSearch hybrid search with RRF pipeline."""
+        """Native OpenSearch 2.19 hybrid search with RRF and pagination."""
+        pagination_depth = min(max((from_ + size) * 2, size * 2), 10000)
         builder = QueryBuilder(
-            query=query, size=size * 2, from_=0, categories=categories, latest_papers=False, search_chunks=True
+            query=query,
+            size=pagination_depth,
+            from_=0,
+            categories=categories,
+            latest_papers=False,
+            search_chunks=True,
         )
         bm25_search_body = builder.build()
-
         bm25_query = bm25_search_body["query"]
 
-        hybrid_query = {"hybrid": {"queries": [bm25_query, {"knn": {"embedding": {"vector": query_embedding, "k": size * 2}}}]}}
+        hybrid_query = {
+            "hybrid": {
+                "pagination_depth": pagination_depth,
+                "queries": [
+                    bm25_query,
+                    {"knn": {"embedding": {"vector": query_embedding, "k": pagination_depth}}},
+                ],
+            }
+        }
 
         search_body = {
+            "from": from_,
             "size": size,
             "query": hybrid_query,
             "_source": bm25_search_body["_source"],
             "highlight": bm25_search_body["highlight"],
         }
+        if min_score > 0:
+            search_body["min_score"] = min_score
 
-        # Execute search with RRF pipeline
         response = self.client.search(
             index=self.index_name, body=search_body, params={"search_pipeline": HYBRID_RRF_PIPELINE["id"]}
         )
@@ -274,9 +303,6 @@ class OpenSearchClient:
         results = {"total": response["hits"]["total"]["value"], "hits": []}
 
         for hit in response["hits"]["hits"]:
-            if hit["_score"] < min_score:
-                continue
-
             chunk = hit["_source"]
             chunk["score"] = hit["_score"]
             chunk["chunk_id"] = hit["_id"]
@@ -286,8 +312,12 @@ class OpenSearchClient:
 
             results["hits"].append(chunk)
 
-        results["total"] = len(results["hits"])
-        logger.info(f"Native hybrid search for '{query[:50]}...' returned {results['total']} results")
+        logger.info(
+            "Native hybrid search for %r returned %s hits (%s total matches)",
+            query[:50],
+            len(results["hits"]),
+            results["total"],
+        )
         return results
 
     def search_chunks_hybrid(
@@ -300,7 +330,12 @@ class OpenSearchClient:
     ) -> Dict[str, Any]:
         """Hybrid search combining BM25 and vector similarity using native RRF."""
         return self._search_hybrid_native(
-            query=query, query_embedding=query_embedding, size=size, categories=categories, min_score=min_score
+            query=query,
+            query_embedding=query_embedding,
+            size=size,
+            from_=0,
+            categories=categories,
+            min_score=min_score,
         )
 
     def index_chunk(self, chunk_data: Dict[str, Any], embedding: List[float]) -> bool:
