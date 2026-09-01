@@ -19,12 +19,7 @@ async def run_paper_ingestion_pipeline(
     target_date: str,
     process_pdfs: bool = True,
 ) -> dict:
-    """Async wrapper for the paper ingestion pipeline.
-
-    :param target_date: Date to fetch papers for (YYYYMMDD format)
-    :param process_pdfs: Whether to download and process PDFs
-    :returns: Dictionary with ingestion statistics
-    """
+    """Async wrapper for the paper ingestion pipeline."""
     arxiv_client, _, database, metadata_fetcher, _ = get_cached_services()
 
     max_results = arxiv_client.max_results
@@ -60,11 +55,20 @@ def fetch_daily_papers(**context):
         )
     )
 
-    logger.info("Daily fetch complete: %s papers for %s", results["papers_fetched"], target_date)
-
     results["date"] = target_date
     ti = context.get("ti")
     if ti:
+        # Push the attempt details before raising so the all-done report task
+        # can explain partial persistence and operators can inspect the IDs.
         ti.xcom_push(key="fetch_results", value=results)
+
+    fetched = int(results.get("papers_fetched", 0) or 0)
+    stored = int(results.get("papers_stored", 0) or 0)
+    logger.info("Daily fetch attempt: %s fetched, %s stored for %s", fetched, stored, target_date)
+
+    if stored != fetched:
+        raise RuntimeError(
+            f"Incomplete PostgreSQL persistence for {target_date}: stored {stored} of {fetched} fetched papers"
+        )
 
     return results
