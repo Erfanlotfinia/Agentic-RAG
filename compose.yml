@@ -3,7 +3,7 @@ services:
     build: .
     container_name: falco-api
     ports:
-      - "8000:8000"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,7 +34,7 @@ services:
     image: redis:7-alpine
     container_name: falco-redis
     ports:
-      - "6379:6379"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "${REDIS__PASSWORD}"]
@@ -57,8 +57,8 @@ services:
       - DISABLE_SECURITY_PLUGIN=true
       - bootstrap.memory_lock=true
     ports:
-      - "9200:9200"
-      - "9600:9600"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9200:9200"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9600:9600"
     ulimits:
       memlock:
         soft: -1
@@ -79,7 +79,7 @@ services:
     image: opensearchproject/opensearch-dashboards:2.19.0
     container_name: falco-opensearch-dashboards
     ports:
-      - "5601:5601"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5601:5601"
     environment:
       - OPENSEARCH_HOSTS=http://opensearch:9200
       - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
@@ -119,7 +119,7 @@ services:
       - ./airflow/plugins:/opt/airflow/plugins
       - ./src:/opt/airflow/src
     ports:
-      - "8080:8080"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -133,7 +133,7 @@ services:
     image: ollama/ollama:0.11.2
     container_name: falco-ollama
     ports:
-      - "11434:11434"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
@@ -155,7 +155,7 @@ services:
       - POSTGRES_HOST_AUTH_METHOD=password
       - PGDATA=/var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -202,9 +202,10 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - "3030:3030"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:3030:3030"
     environment:
-      NEXTAUTH_URL: http://localhost:3001
+      HOSTNAME: 0.0.0.0
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3001}
       DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
       SALT: ${LANGFUSE_SALT}
       ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
@@ -227,13 +228,20 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_MEDIA_PUBLIC_ENDPOINT:-http://localhost:9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: langfuse-redis
       REDIS_PORT: 6379
       REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD}
       REDIS_TLS_ENABLED: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3030/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       - falco-network
 
@@ -251,9 +259,10 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - "3001:3000"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:3001:3000"
     environment:
-      NEXTAUTH_URL: http://localhost:3001
+      HOSTNAME: 0.0.0.0
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3001}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
       DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
       SALT: ${LANGFUSE_SALT}
@@ -277,7 +286,8 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_MEDIA_PUBLIC_ENDPOINT:-http://localhost:9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: langfuse-redis
@@ -286,12 +296,11 @@ services:
       REDIS_TLS_ENABLED: "false"
       LANGFUSE_INIT_ORG_ID: "falco"
       LANGFUSE_INIT_ORG_NAME: "Falco"
-      LANGFUSE_INIT_PROJECT_NAME: "Falco Agentic RAG"
       LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
       LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME}
       LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/public/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -311,7 +320,7 @@ services:
       - TZ=UTC
       - PGTZ=UTC
     ports:
-      - "5433:5432"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5433:5432"
     volumes:
       - langfuse_v3_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -329,7 +338,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD}"]
     ports:
-      - "6380:6379"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:6380:6379"
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a '${LANGFUSE_REDIS_PASSWORD}' ping"]
       interval: 3s
@@ -348,8 +357,8 @@ services:
       - MINIO_ROOT_USER=${LANGFUSE_MINIO_ACCESS_KEY}
       - MINIO_ROOT_PASSWORD=${LANGFUSE_MINIO_SECRET_KEY}
     ports:
-      - "9090:9000"
-      - "9091:9001"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9090:9000"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9091:9001"
     volumes:
       - langfuse_v3_minio_data:/data
     healthcheck:
