@@ -373,22 +373,30 @@ class OpenSearchClient:
             return False
 
     def bulk_index_chunks(self, chunks: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Bulk index multiple chunks with embeddings."""
+        """Bulk index chunks, using deterministic document IDs when supplied."""
         from opensearchpy import helpers
 
+        actions = []
+        for chunk in chunks:
+            chunk_data = chunk["chunk_data"].copy()
+            chunk_data["embedding"] = chunk["embedding"]
+            action = {"_index": self.index_name, "_source": chunk_data}
+            if chunk.get("document_id"):
+                action["_id"] = chunk["document_id"]
+            actions.append(action)
+
         try:
-            actions = []
-            for chunk in chunks:
-                chunk_data = chunk["chunk_data"].copy()
-                chunk_data["embedding"] = chunk["embedding"]
-                actions.append({"_index": self.index_name, "_source": chunk_data})
-
-            success, failed = helpers.bulk(self.client, actions, refresh=True)
-            logger.info(f"Bulk indexed {success} chunks, {len(failed)} failed")
+            success, failed = helpers.bulk(
+                self.client,
+                actions,
+                refresh=True,
+                raise_on_error=False,
+                raise_on_exception=False,
+            )
+            logger.info("Bulk indexed %s chunks, %s failed", success, len(failed))
             return {"success": success, "failed": len(failed)}
-
-        except Exception as e:
-            logger.error(f"Bulk chunk indexing error: {e}")
+        except Exception:
+            logger.exception("Bulk chunk indexing failed")
             raise
 
     def delete_paper_chunks(self, arxiv_id: str) -> bool:
@@ -404,6 +412,27 @@ class OpenSearchClient:
         except Exception as e:
             logger.error(f"Error deleting chunks: {e}")
             return False
+
+    def delete_stale_paper_chunks(self, arxiv_id: str, keep_document_ids: List[str]) -> int:
+        """Delete obsolete chunks only after a replacement set was indexed successfully."""
+        if not keep_document_ids:
+            raise ValueError("keep_document_ids must not be empty for safe replacement")
+
+        response = self.client.delete_by_query(
+            index=self.index_name,
+            body={
+                "query": {
+                    "bool": {
+                        "filter": [{"term": {"arxiv_id": arxiv_id}}],
+                        "must_not": [{"ids": {"values": keep_document_ids}}],
+                    }
+                }
+            },
+            refresh=True,
+        )
+        deleted = int(response.get("deleted", 0))
+        logger.info("Deleted %s stale chunks for paper %s", deleted, arxiv_id)
+        return deleted
 
     def get_chunks_by_paper(self, arxiv_id: str) -> List[Dict[str, Any]]:
         """Get all chunks for a specific paper sorted by chunk index."""
