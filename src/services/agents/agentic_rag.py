@@ -3,16 +3,12 @@ import time
 import uuid
 from typing import List, Optional
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langfuse.langchain import CallbackHandler
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
-try:
-    from langgraph.checkpoint.memory import InMemorySaver
-except ImportError:  # Compatibility with older LangGraph releases.
-    from langgraph.checkpoint.memory import MemorySaver as InMemorySaver
-
+from src.services.cache.client import CacheClient
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.langfuse.client import LangfuseTracer
 from src.services.ollama.client import OllamaClient
@@ -45,16 +41,16 @@ class AgenticRAGService:
         ollama_client: OllamaClient,
         embeddings_client: JinaEmbeddingsClient,
         langfuse_tracer: Optional[LangfuseTracer] = None,
+        cache_client: Optional[CacheClient] = None,
         graph_config: Optional[GraphConfig] = None,
     ):
         self.opensearch = opensearch_client
         self.ollama = ollama_client
         self.embeddings = embeddings_client
         self.langfuse_tracer = langfuse_tracer
+        self.cache_client = cache_client
         self.graph_config = graph_config or GraphConfig()
-        self.checkpointer = InMemorySaver()
 
-        # Keep a compiled default graph for the common request path and visualization.
         self.graph = self._build_graph(
             top_k=self.graph_config.top_k,
             use_hybrid=self.graph_config.use_hybrid,
@@ -110,7 +106,7 @@ class AgenticRAGService:
         workflow.add_edge("rewrite_query", "retrieve")
         workflow.add_edge("generate_answer", END)
 
-        return workflow.compile(checkpointer=self.checkpointer)
+        return workflow.compile()
 
     async def ask(
         self,
@@ -124,8 +120,9 @@ class AgenticRAGService:
     ) -> dict:
         """Run Agentic RAG with request-scoped retrieval options.
 
-        Supplying the same ``session_id`` reuses LangGraph thread state for the
-        lifetime of this service process. Omitting it keeps requests isolated.
+        When a caller supplies ``session_id``, user/assistant turns are loaded
+        from and stored in Redis. This keeps conversation history consistent
+        across the multiple Uvicorn workers used by the Docker image.
         """
         if not query or not query.strip():
             raise ValueError("Query cannot be empty")
@@ -133,6 +130,7 @@ class AgenticRAGService:
         model_to_use = model or self.graph_config.model
         resolved_top_k = top_k if top_k is not None else self.graph_config.top_k
         resolved_hybrid = use_hybrid if use_hybrid is not None else self.graph_config.use_hybrid
+        persist_session = bool(session_id)
         resolved_session_id = session_id or f"request-{uuid.uuid4().hex}"
 
         if resolved_top_k == self.graph_config.top_k and resolved_hybrid == self.graph_config.use_hybrid and not categories:
@@ -173,6 +171,7 @@ class AgenticRAGService:
                         model_to_use=model_to_use,
                         user_id=user_id,
                         session_id=resolved_session_id,
+                        persist_session=persist_session,
                         top_k=resolved_top_k,
                         use_hybrid=resolved_hybrid,
                         categories=categories,
@@ -185,6 +184,7 @@ class AgenticRAGService:
                 model_to_use=model_to_use,
                 user_id=user_id,
                 session_id=resolved_session_id,
+                persist_session=persist_session,
                 top_k=resolved_top_k,
                 use_hybrid=resolved_hybrid,
                 categories=categories,
@@ -197,6 +197,21 @@ class AgenticRAGService:
             logger.error("Agentic RAG execution failed: %s", exc, exc_info=True)
             raise
 
+    async def _load_history(self, session_id: str, persist_session: bool) -> List:
+        if not persist_session or not self.cache_client:
+            return []
+
+        history = await self.cache_client.get_conversation_history(session_id)
+        messages = []
+        for item in history:
+            role = item.get("role")
+            content = item.get("content", "")
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                messages.append(AIMessage(content=content))
+        return messages
+
     async def _run_workflow(
         self,
         graph,
@@ -204,15 +219,17 @@ class AgenticRAGService:
         model_to_use: str,
         user_id: str,
         session_id: str,
+        persist_session: bool,
         top_k: int,
         use_hybrid: bool,
         categories: Optional[List[str]],
         trace,
     ) -> dict:
         start_time = time.time()
+        history_messages = await self._load_history(session_id, persist_session)
 
         state_input = {
-            "messages": [HumanMessage(content=query)],
+            "messages": [*history_messages, HumanMessage(content=query)],
             "retrieval_attempts": 0,
             "guardrail_result": None,
             "routing_decision": None,
@@ -259,6 +276,13 @@ class AgenticRAGService:
             latest_documents = get_latest_retrieved_documents(result.get("messages", []))
             chunks_used = len(latest_documents) if sources else 0
             trace_id = self.langfuse_tracer.get_trace_id(trace) if self.langfuse_tracer and trace else None
+
+            if persist_session and self.cache_client:
+                await self.cache_client.store_conversation_turn(
+                    session_id=session_id,
+                    user_message=query,
+                    assistant_message=answer,
+                )
 
             if trace:
                 trace.update(
