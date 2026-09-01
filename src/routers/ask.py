@@ -22,10 +22,8 @@ async def _prepare_chunks_and_sources(
     embeddings_service,
     rag_tracer: RAGTracer,
     trace=None,
-) -> tuple[List[Dict], List[str], List[str]]:
-    """Retrieve and prepare chunks for RAG with clean tracing."""
-
-    # Handle embeddings for hybrid search
+) -> tuple[List[Dict], List[str], List[str], str]:
+    """Retrieve chunks and return the retrieval mode that was actually used."""
     query_embedding = None
     if request.use_hybrid:
         with rag_tracer.trace_embedding(trace, request.query) as embedding_span:
@@ -37,7 +35,8 @@ async def _prepare_chunks_and_sources(
                 if embedding_span:
                     rag_tracer.tracer.update_span(embedding_span, output={"success": False, "error": str(e)})
 
-    # Search with tracing
+    effective_search_mode = "hybrid" if request.use_hybrid and query_embedding is not None else "bm25"
+
     with rag_tracer.trace_search(trace, request.query, request.top_k) as search_span:
         search_results = opensearch_client.search_unified(
             query=request.query,
@@ -45,19 +44,16 @@ async def _prepare_chunks_and_sources(
             size=request.top_k,
             from_=0,
             categories=request.categories,
-            use_hybrid=request.use_hybrid and query_embedding is not None,
+            use_hybrid=effective_search_mode == "hybrid",
             min_score=0.0,
         )
 
-        # Extract essential data for LLM
         chunks = []
         arxiv_ids = []
         sources_set = set()
 
         for hit in search_results.get("hits", []):
             arxiv_id = hit.get("arxiv_id", "")
-
-            # Minimal chunk data for LLM
             chunks.append(
                 {
                     "arxiv_id": arxiv_id,
@@ -70,10 +66,9 @@ async def _prepare_chunks_and_sources(
                 arxiv_id_clean = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
                 sources_set.add(f"https://arxiv.org/pdf/{arxiv_id_clean}.pdf")
 
-        # End search span with essential metadata
         rag_tracer.end_search(search_span, chunks, arxiv_ids, search_results.get("total", 0))
 
-    return chunks, list(sources_set), arxiv_ids
+    return chunks, sorted(sources_set), arxiv_ids, effective_search_mode
 
 
 @ask_router.post("/ask", response_model=AskResponse)
@@ -86,13 +81,11 @@ async def ask_question(
     cache_client: CacheDep,
 ) -> AskResponse:
     """Clean RAG endpoint with essential tracing and exact match caching."""
-
     rag_tracer = RAGTracer(langfuse_tracer)
     start_time = time.time()
 
     with rag_tracer.trace_request("api_user", request.query) as trace:
         try:
-            # Check exact cache first
             cached_response = None
             if cache_client:
                 try:
@@ -103,11 +96,7 @@ async def ask_question(
                 except Exception as e:
                     logger.warning(f"Cache check failed, proceeding with normal flow: {e}")
 
-            # Generate query embedding for hybrid search if needed
-            query_embedding = None
-
-            # Retrieve chunks
-            chunks, sources, _ = await _prepare_chunks_and_sources(
+            chunks, sources, _, search_mode = await _prepare_chunks_and_sources(
                 request, opensearch_client, embeddings_service, rag_tracer, trace
             )
 
@@ -117,12 +106,11 @@ async def ask_question(
                     answer="I couldn't find any relevant information in the papers to answer your question.",
                     sources=[],
                     chunks_used=0,
-                    search_mode="bm25" if not request.use_hybrid else "hybrid",
+                    search_mode=search_mode,
                 )
                 rag_tracer.end_request(trace, response.answer, time.time() - start_time)
                 return response
 
-            # Build prompt
             with rag_tracer.trace_prompt_construction(trace, chunks) as prompt_span:
                 from src.services.ollama.prompts import RAGPromptBuilder
 
@@ -136,24 +124,21 @@ async def ask_question(
 
                 rag_tracer.end_prompt(prompt_span, final_prompt)
 
-            # Generate answer
             with rag_tracer.trace_generation(trace, request.model, final_prompt) as gen_span:
                 rag_response = await ollama_client.generate_rag_answer(query=request.query, chunks=chunks, model=request.model)
                 answer = rag_response.get("answer", "Unable to generate answer")
                 rag_tracer.end_generation(gen_span, answer, request.model)
 
-            # Prepare response
             response = AskResponse(
                 query=request.query,
                 answer=answer,
                 sources=sources,
                 chunks_used=len(chunks),
-                search_mode="bm25" if not request.use_hybrid else "hybrid",
+                search_mode=search_mode,
             )
 
             rag_tracer.end_request(trace, answer, time.time() - start_time)
 
-            # Store response in exact match cache
             if cache_client:
                 try:
                     await cache_client.store_response(request, response)
@@ -184,14 +169,12 @@ async def ask_question_stream(
 
         with rag_tracer.trace_request("api_user", request.query) as trace:
             try:
-                # Check exact cache first
                 if cache_client:
                     try:
                         cached_response = await cache_client.find_cached_response(request)
                         if cached_response:
                             logger.info("Returning cached response for exact streaming query match")
 
-                            # Send metadata first (same format as non-cached)
                             metadata_response = {
                                 "sources": cached_response.sources,
                                 "chunks_used": cached_response.chunks_used,
@@ -199,31 +182,32 @@ async def ask_question_stream(
                             }
                             yield f"data: {json.dumps(metadata_response)}\n\n"
 
-                            # Stream the cached response in chunks
                             for chunk in cached_response.answer.split():
                                 yield f"data: {json.dumps({'chunk': chunk + ' '})}\n\n"
 
-                            # Send completion signal with just the final answer
                             yield f"data: {json.dumps({'answer': cached_response.answer, 'done': True})}\n\n"
                             return
                     except Exception as e:
                         logger.warning(f"Cache check failed, proceeding with normal flow: {e}")
 
-                # Retrieve chunks
-                chunks, sources, _ = await _prepare_chunks_and_sources(
+                chunks, sources, _, search_mode = await _prepare_chunks_and_sources(
                     request, opensearch_client, embeddings_service, rag_tracer, trace
                 )
 
                 if not chunks:
-                    yield f"data: {json.dumps({'answer': 'No relevant information found.', 'sources': [], 'done': True})}\n\n"
+                    no_results = {
+                        "answer": "No relevant information found.",
+                        "sources": [],
+                        "chunks_used": 0,
+                        "search_mode": search_mode,
+                        "done": True,
+                    }
+                    yield f"data: {json.dumps(no_results)}\n\n"
                     return
 
-                # Send metadata first
-                search_mode = "bm25" if not request.use_hybrid else "hybrid"
                 metadata_response = {"sources": sources, "chunks_used": len(chunks), "search_mode": search_mode}
                 yield f"data: {json.dumps(metadata_response)}\n\n"
 
-                # Build prompt
                 with rag_tracer.trace_prompt_construction(trace, chunks) as prompt_span:
                     from src.services.ollama.prompts import RAGPromptBuilder
 
@@ -231,7 +215,6 @@ async def ask_question_stream(
                     final_prompt = prompt_builder.create_rag_prompt(request.query, chunks)
                     rag_tracer.end_prompt(prompt_span, final_prompt)
 
-                # Stream generation
                 with rag_tracer.trace_generation(trace, request.model, final_prompt) as gen_span:
                     full_response = ""
                     async for chunk in ollama_client.generate_rag_answer_stream(
@@ -249,10 +232,8 @@ async def ask_question_stream(
 
                 rag_tracer.end_request(trace, full_response, time.time() - start_time)
 
-                # Store response in exact match cache
                 if cache_client and full_response:
                     try:
-                        search_mode = "bm25" if not request.use_hybrid else "hybrid"
                         response_to_cache = AskResponse(
                             query=request.query,
                             answer=full_response,
