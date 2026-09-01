@@ -9,10 +9,17 @@ import httpx
 logger = logging.getLogger(__name__)
 
 API_BASE_URL = os.getenv("FALCO_API_BASE_URL", "http://localhost:8000/api/v1").rstrip("/")
+API_KEY = os.getenv("FALCO_API_KEY", "")
 CONSOLE_BIND_ADDRESS = os.getenv("FALCO_CONSOLE_BIND_ADDRESS", "127.0.0.1")
 CONSOLE_PORT = int(os.getenv("FALCO_CONSOLE_PORT", "7861"))
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
-AVAILABLE_CATEGORIES = ["cs.AI", "cs.LG"]
+
+
+def _api_headers() -> dict[str, str]:
+    headers = {"Accept": "text/event-stream"}
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
+    return headers
 
 
 async def stream_response(
@@ -27,9 +34,14 @@ async def stream_response(
     payload = {"query": query, "top_k": top_k, "use_hybrid": use_hybrid, "model": model, "categories": category_list}
 
     try:
-        url = f"{API_BASE_URL}/stream"
         async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream("POST", url, json=payload, headers={"Accept": "text/event-stream"}) as response:
+            async with client.stream("POST", f"{API_BASE_URL}/stream", json=payload, headers=_api_headers()) as response:
+                if response.status_code == 401:
+                    yield "Falco API authentication failed. Configure FALCO_API_KEY for this console."
+                    return
+                if response.status_code == 429:
+                    yield "Falco API rate limit reached. Retry after the server-provided interval."
+                    return
                 if response.status_code != 200:
                     yield f"Falco API returned status {response.status_code}."
                     return
@@ -42,31 +54,25 @@ async def stream_response(
                 async for line in response.aiter_lines():
                     if not line.startswith("data: "):
                         continue
-
-                    data_str = line[6:]
                     try:
-                        data = json.loads(data_str)
+                        data = json.loads(line[6:])
                     except json.JSONDecodeError:
                         continue
 
                     if "error" in data:
                         yield f"Request failed: {data['error']}"
                         return
-
                     if "sources" in data:
                         sources = data["sources"]
                         chunks_used = data.get("chunks_used", 0)
                         search_mode = data.get("search_mode", "unknown")
                         if not data.get("done", False):
                             continue
-
                     if "chunk" in data:
                         current_answer += data["chunk"]
                         yield _format_response(current_answer, sources, chunks_used, search_mode)
-
                     if data.get("done", False):
-                        final_answer = data.get("answer", current_answer)
-                        yield _format_response(final_answer, sources, chunks_used, search_mode)
+                        yield _format_response(data.get("answer", current_answer), sources, chunks_used, search_mode)
                         break
 
     except httpx.RequestError:
@@ -81,7 +87,6 @@ def _format_response(answer: str, sources: list, chunks_used: int, search_mode: 
     formatted = answer
     if not sources and not chunks_used:
         return formatted
-
     formatted += "\n\n**Retrieval details**\n"
     formatted += f"- Mode: {search_mode}\n"
     formatted += f"- Chunks used: {chunks_used}\n"
@@ -105,7 +110,6 @@ def create_gradio_interface():
             Query your indexed research corpus with grounded retrieval and local LLM generation.
             """
         )
-
         with gr.Row():
             with gr.Column(scale=3):
                 query_input = gr.Textbox(
@@ -151,7 +155,6 @@ def create_gradio_interface():
             height=400,
             elem_classes=["response-markdown"],
         )
-
         gr.Examples(
             examples=[
                 ["What are transformer architectures in machine learning?", 3, True, DEFAULT_MODEL, "cs.AI, cs.LG"],
@@ -160,7 +163,6 @@ def create_gradio_interface():
             ],
             inputs=[query_input, top_k, use_hybrid, model_choice, categories],
         )
-
         submit_btn.click(
             fn=stream_response,
             inputs=[query_input, top_k, use_hybrid, model_choice, categories],
@@ -173,20 +175,17 @@ def create_gradio_interface():
             outputs=[response_output],
             show_progress=True,
         )
-
         gr.Markdown(
             f"""
             ---
             **Falco Research Console** uses the streaming API at `{API_BASE_URL}`.
-            Configure retrieval and model options to match your deployment and indexed corpus.
+            Configure retrieval, model, and `FALCO_API_KEY` settings to match your deployment.
             """
         )
-
     return interface
 
 
 def main():
-    """Start the Falco Research Console."""
     print("Starting Falco Agentic RAG Research Console...")
     print(f"API Base URL: {API_BASE_URL}")
     print(f"Console URL: http://{CONSOLE_BIND_ADDRESS}:{CONSOLE_PORT}")
