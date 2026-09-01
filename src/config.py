@@ -113,7 +113,7 @@ class LangfuseSettings(BaseConfigSettings):
     public_key: str = ""
     secret_key: str = ""
     host: str = "http://localhost:3001"
-    enabled: bool = True
+    enabled: bool = False
     flush_at: int = 15
     flush_interval: float = 1.0
     max_retries: int = 3
@@ -154,10 +154,10 @@ class TelegramSettings(BaseConfigSettings):
 
 
 class Settings(BaseConfigSettings):
-    app_version: str = "0.1.0"
-    debug: bool = True
+    app_version: str = "1.0.0"
+    debug: bool = False
     environment: Literal["development", "staging", "production"] = "development"
-    service_name: str = "rag-api"
+    service_name: str = "falco-agentic-rag-api"
 
     postgres_database_url: str = "postgresql://rag_user:rag_password@localhost:5432/rag_db"
     postgres_echo_sql: bool = False

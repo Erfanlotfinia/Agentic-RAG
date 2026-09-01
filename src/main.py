@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize and tear down application-scoped services."""
-    logger.info("Starting RAG API...")
+    """Initialize and tear down application-scoped Falco services."""
+    logger.info("Starting Falco Agentic RAG API...")
 
     settings = get_settings()
     app.state.settings = settings
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.info("OpenSearch index ready (stats unavailable)")
     else:
-        logger.warning("OpenSearch connection failed - search features will be limited")
+        logger.warning("OpenSearch connection failed - retrieval features will be limited")
 
     app.state.arxiv_client = make_arxiv_client()
     app.state.pdf_parser = make_pdf_parser_service()
@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
         cache_client=app.state.cache_client,
         model=settings.ollama_model,
     )
-    logger.info("Core RAG and Agentic RAG services initialized")
+    logger.info("Falco RAG and Agentic RAG services initialized")
 
     telegram_service = make_telegram_service(
         opensearch_client=app.state.opensearch_client,
@@ -83,18 +83,18 @@ async def lifespan(app: FastAPI):
         app.state.telegram_service = telegram_service
         try:
             await telegram_service.start()
-            logger.info("Telegram bot started successfully")
+            logger.info("Falco Telegram interface started successfully")
         except Exception as exc:
-            logger.error("Failed to start Telegram bot: %s", exc)
+            logger.error("Failed to start Telegram interface: %s", exc)
     else:
-        logger.info("Telegram bot not configured - skipping initialization")
+        logger.info("Telegram interface not configured - skipping initialization")
 
-    logger.info("API ready")
+    logger.info("Falco Agentic RAG API ready")
     yield
 
     if hasattr(app.state, "telegram_service") and app.state.telegram_service:
         await app.state.telegram_service.stop()
-        logger.info("Telegram bot stopped")
+        logger.info("Telegram interface stopped")
 
     try:
         await app.state.embeddings_service.close()
@@ -105,13 +105,13 @@ async def lifespan(app: FastAPI):
         app.state.langfuse_tracer.shutdown()
 
     database.teardown()
-    logger.info("API shutdown complete")
+    logger.info("Falco Agentic RAG API shutdown complete")
 
 
 app = FastAPI(
-    title="arXiv Paper Curator API",
-    description="Personal arXiv CS.AI paper curator with RAG capabilities",
-    version=os.getenv("APP_VERSION", "0.1.0"),
+    title="Falco Agentic RAG API",
+    description="Self-hosted research intelligence API with hybrid retrieval, grounded RAG, and adaptive Agentic RAG.",
+    version=os.getenv("APP_VERSION", "1.0.0"),
     lifespan=lifespan,
 )
 

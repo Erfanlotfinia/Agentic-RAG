@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramBot:
-    """Telegram interface backed by the same Agentic RAG service as the API."""
+    """Optional Falco Telegram interface backed by the shared Agentic RAG service."""
 
     def __init__(
         self,
@@ -27,7 +27,7 @@ class TelegramBot:
         self.application: Optional[Application] = None
 
     async def start(self) -> None:
-        logger.info("Starting Telegram bot...")
+        logger.info("Starting Falco Telegram interface...")
         self.application = Application.builder().token(self.bot_token).build()
         self.application.add_handler(CommandHandler("start", self._start_command))
         self.application.add_handler(CommandHandler("help", self._help_command))
@@ -37,31 +37,31 @@ class TelegramBot:
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
-        logger.info("Telegram bot started successfully")
+        logger.info("Falco Telegram interface started successfully")
 
     async def stop(self) -> None:
         if self.application:
             await self.application.updater.stop()
             await self.application.stop()
             await self.application.shutdown()
-            logger.info("Telegram bot stopped")
+            logger.info("Falco Telegram interface stopped")
 
     async def _start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
-            "Welcome to arXiv Paper Curator!\n\n"
-            "Ask questions about CS/AI research and I'll use the Agentic RAG workflow to answer with sources.\n\n"
+            "Welcome to Falco Agentic RAG!\n\n"
+            "Ask a question about CS/AI research and Falco will retrieve relevant papers and answer with sources.\n\n"
             "Commands:\n"
-            "/help - Show this help\n"
-            "/search <keywords> - Search papers"
+            "/help - Show usage information\n"
+            "/search <keywords> - Search indexed papers"
         )
 
     async def _help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
-            "Send a question about computer science or AI research papers.\n\n"
+            "Send Falco a question about computer science or AI research.\n\n"
             "Examples:\n"
             "- What are transformer architectures?\n"
             "- How does BERT work?\n"
-            "- Explain attention mechanisms\n\n"
+            "- Explain retrieval-augmented generation\n\n"
             "Use /search to retrieve paper titles directly."
         )
 
@@ -141,7 +141,7 @@ class TelegramBot:
             await update.message.reply_text(f"Error: {str(exc)}")
 
     async def _send_answer(self, update: Update, response: AskResponse) -> None:
-        message = f"*Answer:*\n{response.answer}\n"
+        message = f"*Falco answer:*\n{response.answer}\n"
 
         if response.sources:
             message += "\n*Sources:*\n"
