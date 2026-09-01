@@ -1,12 +1,8 @@
-"""
-Simple launcher for the Gradio interface.
-Run this script to start the web UI for the arXiv Paper Curator RAG system.
-"""
+"""Launcher for the Falco Agentic RAG Research Console."""
 
 import sys
 from pathlib import Path
 
-# Add src to Python path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
