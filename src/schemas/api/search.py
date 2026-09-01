@@ -1,6 +1,8 @@
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, Field
+
+Category = Annotated[str, Field(min_length=1, max_length=32)]
 
 
 class SearchRequest(BaseModel):
@@ -9,7 +11,7 @@ class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="Search query across title, abstract, and authors")
     size: int = Field(default=10, ge=1, le=50, description="Number of results to return")
     from_: int = Field(default=0, ge=0, le=9950, alias="from", description="Offset for pagination")
-    categories: Optional[List[str]] = Field(default=None, description="Filter by categories")
+    categories: Optional[List[Category]] = Field(default=None, max_length=20, description="Filter by categories")
     latest_papers: bool = Field(default=False, description="Sort by publication date (newest first) instead of relevance")
 
 
@@ -25,7 +27,11 @@ class HybridSearchRequest(BaseModel):
         le=9900,
         alias="from",
     )
-    categories: Optional[List[str]] = Field(None, description="Filter by arXiv categories (e.g., ['cs.AI', 'cs.LG'])")
+    categories: Optional[List[Category]] = Field(
+        None,
+        max_length=20,
+        description="Filter by arXiv categories (e.g., ['cs.AI', 'cs.LG'])",
+    )
     latest_papers: bool = Field(False, description="Sort by publication date instead of relevance")
     use_hybrid: bool = Field(True, description="Enable hybrid search (BM25 + vector) with automatic embedding generation")
     min_score: float = Field(0.0, description="Minimum score threshold for results", ge=0.0)
