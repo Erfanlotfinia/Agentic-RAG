@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         ollama_client=app.state.ollama_client,
         embeddings_client=app.state.embeddings_service,
         langfuse_tracer=app.state.langfuse_tracer,
+        cache_client=app.state.cache_client,
         model=settings.ollama_model,
     )
     logger.info("Core RAG and Agentic RAG services initialized")
