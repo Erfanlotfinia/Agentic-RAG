@@ -92,6 +92,11 @@ class OpenSearchSettings(BaseConfigSettings):
     )
 
     host: str = "http://localhost:9200"
+    username: str = ""
+    password: str = ""
+    use_ssl: bool = False
+    verify_certs: bool = True
+    ca_certs: Optional[str] = None
     index_name: str = "arxiv-papers"
     chunk_index_suffix: str = "chunks"
     max_text_size: int = 1000000
