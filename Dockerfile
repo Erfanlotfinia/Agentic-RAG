@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY src /app/src
 
-FROM python:3.12.8-slim AS final
+FROM python:3.12.14-slim-bookworm AS final
 
 ARG VERSION=1.0.0
 ENV APP_VERSION=$VERSION \
