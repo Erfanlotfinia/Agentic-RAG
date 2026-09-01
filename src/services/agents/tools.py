@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import List, Optional
@@ -46,7 +47,8 @@ def create_retriever_tool(
                 logger.warning("Query embedding failed; falling back to BM25: %s", exc)
                 effective_hybrid = False
 
-        search_results = opensearch_client.search_unified(
+        search_results = await asyncio.to_thread(
+            opensearch_client.search_unified,
             query=query,
             query_embedding=query_embedding,
             size=top_k,
