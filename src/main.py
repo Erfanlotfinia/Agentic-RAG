@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -95,22 +96,38 @@ async def lifespan(app: FastAPI):
         logger.info("Telegram interface not configured - skipping initialization")
 
     logger.info("Falco Agentic RAG API ready")
-    yield
-
-    if hasattr(app.state, "telegram_service") and app.state.telegram_service:
-        await app.state.telegram_service.stop()
-        logger.info("Telegram interface stopped")
-
     try:
-        await app.state.embeddings_service.close()
-    except Exception:
-        logger.debug("Embeddings client cleanup skipped", exc_info=True)
+        yield
+    finally:
+        if getattr(app.state, "telegram_service", None):
+            try:
+                await app.state.telegram_service.stop()
+                logger.info("Telegram interface stopped")
+            except Exception:
+                logger.exception("Telegram interface cleanup failed")
 
-    if app.state.langfuse_tracer:
-        app.state.langfuse_tracer.shutdown()
+        try:
+            await app.state.embeddings_service.close()
+        except Exception:
+            logger.debug("Embeddings client cleanup skipped", exc_info=True)
 
-    database.teardown()
-    logger.info("Falco Agentic RAG API shutdown complete")
+        try:
+            if app.state.langfuse_tracer:
+                app.state.langfuse_tracer.shutdown()
+        except Exception:
+            logger.exception("Langfuse cleanup failed")
+
+        try:
+            await asyncio.to_thread(opensearch_client.close)
+        except Exception:
+            logger.exception("OpenSearch cleanup failed")
+
+        try:
+            database.teardown()
+        except Exception:
+            logger.exception("Database cleanup failed")
+
+        logger.info("Falco Agentic RAG API shutdown complete")
 
 
 app = FastAPI(
