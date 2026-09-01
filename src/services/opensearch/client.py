@@ -1,6 +1,7 @@
 """Unified OpenSearch client supporting both simple BM25 and hybrid search."""
 
 import logging
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from opensearchpy import OpenSearch
@@ -67,19 +68,25 @@ class OpenSearchClient:
         return results
 
     def _create_hybrid_index(self, force: bool = False) -> bool:
-        """Create hybrid index for all search types (BM25, vector, hybrid).
-
-        :param force: If True, recreate index even if it exists
-        :returns: True if created, False if already exists
-        """
+        """Create the configured hybrid index for BM25/vector/hybrid retrieval."""
         try:
             if force and self.client.indices.exists(index=self.index_name):
                 self.client.indices.delete(index=self.index_name)
                 logger.info(f"Deleted existing hybrid index: {self.index_name}")
 
             if not self.client.indices.exists(index=self.index_name):
-                self.client.indices.create(index=self.index_name, body=ARXIV_PAPERS_CHUNKS_MAPPING)
-                logger.info(f"Created hybrid index: {self.index_name}")
+                mapping = deepcopy(ARXIV_PAPERS_CHUNKS_MAPPING)
+                embedding = mapping["mappings"]["properties"]["embedding"]
+                embedding["dimension"] = self.settings.opensearch.vector_dimension
+                embedding["method"]["space_type"] = self.settings.opensearch.vector_space_type
+
+                self.client.indices.create(index=self.index_name, body=mapping)
+                logger.info(
+                    "Created hybrid index %s (dimension=%s, space=%s)",
+                    self.index_name,
+                    self.settings.opensearch.vector_dimension,
+                    self.settings.opensearch.vector_space_type,
+                )
                 return True
 
             logger.info(f"Hybrid index already exists: {self.index_name}")
@@ -93,8 +100,8 @@ class OpenSearchClient:
             raise
 
     def _create_rrf_pipeline(self, force: bool = False) -> bool:
-        """Create the OpenSearch search pipeline used for native RRF."""
-        pipeline_id = HYBRID_RRF_PIPELINE["id"]
+        """Create the configured OpenSearch search pipeline used for native RRF."""
+        pipeline_id = self.settings.opensearch.rrf_pipeline_name
         pipeline_path = f"/_search/pipeline/{pipeline_id}"
 
         try:
@@ -134,13 +141,7 @@ class OpenSearchClient:
     def search_chunks_vector(
         self, query_embedding: List[float], size: int = 10, categories: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """Pure vector search on chunks.
-
-        :param query_embedding: Query embedding vector
-        :param size: Number of results
-        :param categories: Optional category filter
-        :returns: Search results
-        """
+        """Pure vector search on chunks."""
         try:
             filter_clause = []
             if categories:
@@ -260,7 +261,8 @@ class OpenSearchClient:
         min_score: float,
     ) -> Dict[str, Any]:
         """Native OpenSearch 2.19 hybrid search with RRF, filtering, and pagination."""
-        pagination_depth = min(max((from_ + size) * 2, size * 2), 10000)
+        multiplier = max(1, self.settings.opensearch.hybrid_search_size_multiplier)
+        pagination_depth = min(max((from_ + size) * multiplier, size * multiplier), 10000)
         builder = QueryBuilder(
             query=query,
             size=pagination_depth,
@@ -280,8 +282,6 @@ class OpenSearchClient:
             ],
         }
         if categories:
-            # Hybrid-level filters are applied to every subquery, preventing the
-            # vector branch from reintroducing documents outside the requested categories.
             hybrid_body["filter"] = {"terms": {"categories": categories}}
 
         search_body = {
@@ -295,7 +295,9 @@ class OpenSearchClient:
             search_body["min_score"] = min_score
 
         response = self.client.search(
-            index=self.index_name, body=search_body, params={"search_pipeline": HYBRID_RRF_PIPELINE["id"]}
+            index=self.index_name,
+            body=search_body,
+            params={"search_pipeline": self.settings.opensearch.rrf_pipeline_name},
         )
 
         results = {"total": response["hits"]["total"]["value"], "hits": []}
@@ -337,17 +339,10 @@ class OpenSearchClient:
         )
 
     def index_chunk(self, chunk_data: Dict[str, Any], embedding: List[float]) -> bool:
-        """Index a single chunk with its embedding.
-
-        :param chunk_data: Chunk data dictionary
-        :param embedding: Embedding vector
-        :returns: True if successful
-        """
+        """Index a single chunk with its embedding."""
         try:
             chunk_data["embedding"] = embedding
-
             response = self.client.index(index=self.index_name, body=chunk_data, refresh=True)
-
             return response["result"] in ["created", "updated"]
 
         except Exception as e:
@@ -355,11 +350,7 @@ class OpenSearchClient:
             return False
 
     def bulk_index_chunks(self, chunks: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Bulk index multiple chunks with embeddings.
-
-        :param chunks: List of dicts with 'chunk_data' and 'embedding'
-        :returns: Statistics
-        """
+        """Bulk index multiple chunks with embeddings."""
         from opensearchpy import helpers
 
         try:
@@ -367,12 +358,9 @@ class OpenSearchClient:
             for chunk in chunks:
                 chunk_data = chunk["chunk_data"].copy()
                 chunk_data["embedding"] = chunk["embedding"]
-
-                action = {"_index": self.index_name, "_source": chunk_data}
-                actions.append(action)
+                actions.append({"_index": self.index_name, "_source": chunk_data})
 
             success, failed = helpers.bulk(self.client, actions, refresh=True)
-
             logger.info(f"Bulk indexed {success} chunks, {len(failed)} failed")
             return {"success": success, "failed": len(failed)}
 
@@ -381,16 +369,11 @@ class OpenSearchClient:
             raise
 
     def delete_paper_chunks(self, arxiv_id: str) -> bool:
-        """Delete all chunks for a specific paper.
-
-        :param arxiv_id: ArXiv ID of the paper
-        :returns: True if deletion was successful
-        """
+        """Delete all chunks for a specific paper."""
         try:
             response = self.client.delete_by_query(
                 index=self.index_name, body={"query": {"term": {"arxiv_id": arxiv_id}}}, refresh=True
             )
-
             deleted = response.get("deleted", 0)
             logger.info(f"Deleted {deleted} chunks for paper {arxiv_id}")
             return deleted > 0
@@ -400,11 +383,7 @@ class OpenSearchClient:
             return False
 
     def get_chunks_by_paper(self, arxiv_id: str) -> List[Dict[str, Any]]:
-        """Get all chunks for a specific paper.
-
-        :param arxiv_id: ArXiv ID of the paper
-        :returns: List of chunks sorted by chunk_index
-        """
+        """Get all chunks for a specific paper sorted by chunk index."""
         try:
             search_body = {
                 "query": {"term": {"arxiv_id": arxiv_id}},
