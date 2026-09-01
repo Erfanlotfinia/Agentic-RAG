@@ -4,33 +4,32 @@ from pydantic import BaseModel, Field
 
 
 class ServiceStatus(BaseModel):
-    """Individual service status."""
+    """Individual dependency status."""
 
-    status: str = Field(..., description="Service status", example="healthy")
-    message: Optional[str] = Field(None, description="Status message", example="Connected successfully")
+    status: str = Field(..., description="Service status", examples=["healthy"])
+    message: Optional[str] = Field(None, description="Status message", examples=["Connected successfully"])
 
 
 class HealthResponse(BaseModel):
-    """Health check response model."""
+    """Falco health/readiness status response."""
 
-    status: str = Field(..., description="Overall health status", example="ok")
-    version: str = Field(..., description="Application version", example="0.1.0")
-    environment: str = Field(..., description="Deployment environment", example="development")
-    service_name: str = Field(..., description="Service identifier", example="rag-api")
-    services: Optional[Dict[str, ServiceStatus]] = Field(None, description="Individual service statuses")
+    status: str = Field(..., description="Overall health status: ok or degraded", examples=["ok"])
+    version: str = Field(..., description="Application version", examples=["1.0.0"])
+    environment: str = Field(..., description="Deployment environment", examples=["development"])
+    service_name: str = Field(..., description="Service identifier", examples=["falco-agentic-rag-api"])
+    services: Optional[Dict[str, ServiceStatus]] = Field(None, description="Individual dependency statuses")
 
     class Config:
-        """Pydantic configuration."""
-
         json_schema_extra = {
             "example": {
                 "status": "ok",
-                "version": "0.1.0",
+                "version": "1.0.0",
                 "environment": "development",
-                "service_name": "rag-api",
+                "service_name": "falco-agentic-rag-api",
                 "services": {
                     "database": {"status": "healthy", "message": "Connected successfully"},
-                    "pdf_parser": {"status": "healthy", "message": "Docling parser ready"},
+                    "opensearch": {"status": "healthy", "message": "Index 'arxiv-papers-chunks' with 42 documents"},
+                    "ollama": {"status": "healthy", "message": "Ollama service is running"},
                 },
             }
         }
