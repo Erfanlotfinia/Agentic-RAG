@@ -9,31 +9,48 @@ from ..models import ReasoningStep, SourceItem, ToolArtefact
 logger = logging.getLogger(__name__)
 
 
-def _parse_tool_documents(message: ToolMessage) -> List[Dict]:
+def _parse_tool_payload(message: ToolMessage) -> Dict:
     if getattr(message, "name", None) != "retrieve_papers":
-        return []
+        return {}
 
     content = message.content if hasattr(message, "content") else ""
     if not isinstance(content, str):
-        return []
+        return {}
 
     try:
         payload = json.loads(content)
     except (TypeError, json.JSONDecodeError):
-        return []
+        return {}
 
-    documents = payload.get("documents", []) if isinstance(payload, dict) else []
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_tool_documents(message: ToolMessage) -> List[Dict]:
+    payload = _parse_tool_payload(message)
+    documents = payload.get("documents", [])
     return documents if isinstance(documents, list) else []
+
+
+def get_latest_retrieval_payload(messages: List) -> Dict:
+    """Return the most recent retrieve_papers payload."""
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage) and getattr(msg, "name", None) == "retrieve_papers":
+            return _parse_tool_payload(msg)
+    return {}
 
 
 def get_latest_retrieved_documents(messages: List) -> List[Dict]:
     """Return documents from the most recent retrieve_papers tool call."""
-    for msg in reversed(messages):
-        if isinstance(msg, ToolMessage):
-            documents = _parse_tool_documents(msg)
-            if documents or getattr(msg, "name", None) == "retrieve_papers":
-                return documents
-    return []
+    payload = get_latest_retrieval_payload(messages)
+    documents = payload.get("documents", []) if payload else []
+    return documents if isinstance(documents, list) else []
+
+
+def get_latest_search_mode(messages: List, default: str = "bm25") -> str:
+    """Return the effective search mode reported by the latest retriever call."""
+    payload = get_latest_retrieval_payload(messages)
+    mode = payload.get("search_mode") if payload else None
+    return mode if mode in {"bm25", "hybrid"} else default
 
 
 def extract_sources_from_tool_messages(messages: List) -> List[SourceItem]:
@@ -74,7 +91,7 @@ def extract_tool_artefacts(messages: List) -> List[ToolArtefact]:
 
     for msg in messages:
         if isinstance(msg, ToolMessage):
-            parsed_content = _parse_tool_documents(msg) or msg.content
+            parsed_content = _parse_tool_payload(msg) or msg.content
             artefacts.append(
                 ToolArtefact(
                     tool_name=getattr(msg, "name", "unknown"),
@@ -131,7 +148,6 @@ def get_latest_context(messages: List) -> str:
                 rendered.append(f"[{title} | arXiv:{arxiv_id}]\n{content}")
             return "\n\n".join(rendered)
 
-        # Backward-compatible fallback for legacy/raw ToolMessage content used in tests.
         return msg.content if hasattr(msg, "content") else ""
 
     return ""
