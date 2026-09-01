@@ -11,9 +11,14 @@ from src.services.langfuse.tracer import RAGTracer
 
 logger = logging.getLogger(__name__)
 
-# Two separate routers - one for regular ask, one for streaming
 ask_router = APIRouter(tags=["ask"])
 stream_router = APIRouter(tags=["stream"])
+
+
+def _cache_matches_requested_mode(request: AskRequest, response: AskResponse) -> bool:
+    """Return True only when a cached response satisfies the requested retrieval mode."""
+    requested_mode = "hybrid" if request.use_hybrid else "bm25"
+    return response.search_mode == requested_mode
 
 
 async def _prepare_chunks_and_sources(
@@ -30,10 +35,10 @@ async def _prepare_chunks_and_sources(
             try:
                 query_embedding = await embeddings_service.embed_query(request.query)
                 logger.info("Generated query embedding for hybrid search")
-            except Exception as e:
-                logger.warning(f"Failed to generate embeddings, falling back to BM25: {e}")
+            except Exception as exc:
+                logger.warning("Failed to generate embeddings, falling back to BM25: %s", exc)
                 if embedding_span:
-                    rag_tracer.tracer.update_span(embedding_span, output={"success": False, "error": str(e)})
+                    rag_tracer.tracer.update_span(embedding_span, output={"success": False, "error": str(exc)})
 
     effective_search_mode = "hybrid" if request.use_hybrid and query_embedding is not None else "bm25"
 
@@ -80,21 +85,26 @@ async def ask_question(
     langfuse_tracer: LangfuseDep,
     cache_client: CacheDep,
 ) -> AskResponse:
-    """Clean RAG endpoint with essential tracing and exact match caching."""
+    """Answer a grounded RAG request with exact-match caching when semantics match."""
     rag_tracer = RAGTracer(langfuse_tracer)
     start_time = time.time()
 
     with rag_tracer.trace_request("api_user", request.query) as trace:
         try:
-            cached_response = None
             if cache_client:
                 try:
                     cached_response = await cache_client.find_cached_response(request)
-                    if cached_response:
-                        logger.info("Returning cached response for exact query match")
+                    if cached_response and _cache_matches_requested_mode(request, cached_response):
+                        logger.info("Returning cached response for exact query and retrieval-mode match")
                         return cached_response
-                except Exception as e:
-                    logger.warning(f"Cache check failed, proceeding with normal flow: {e}")
+                    if cached_response:
+                        logger.info(
+                            "Ignoring cached %s response because the request requires %s retrieval",
+                            cached_response.search_mode,
+                            "hybrid" if request.use_hybrid else "bm25",
+                        )
+                except Exception as exc:
+                    logger.warning("Cache check failed, proceeding with normal flow: %s", exc)
 
             chunks, sources, _, search_mode = await _prepare_chunks_and_sources(
                 request, opensearch_client, embeddings_service, rag_tracer, trace
@@ -115,7 +125,6 @@ async def ask_question(
                 from src.services.ollama.prompts import RAGPromptBuilder
 
                 prompt_builder = RAGPromptBuilder()
-
                 try:
                     prompt_data = prompt_builder.create_structured_prompt(request.query, chunks)
                     final_prompt = prompt_data["prompt"]
@@ -139,17 +148,19 @@ async def ask_question(
 
             rag_tracer.end_request(trace, answer, time.time() - start_time)
 
-            if cache_client:
+            if cache_client and _cache_matches_requested_mode(request, response):
                 try:
                     await cache_client.store_response(request, response)
-                except Exception as e:
-                    logger.warning(f"Failed to store response in cache: {e}")
+                except Exception as exc:
+                    logger.warning("Failed to store response in cache: %s", exc)
 
             return response
 
-        except Exception as e:
-            logger.error(f"Error processing request: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Error processing RAG request")
+            raise HTTPException(status_code=500, detail="Unable to process the request")
 
 
 @stream_router.post("/stream")
@@ -161,7 +172,7 @@ async def ask_question_stream(
     langfuse_tracer: LangfuseDep,
     cache_client: CacheDep,
 ) -> StreamingResponse:
-    """Clean streaming RAG endpoint."""
+    """Stream a grounded RAG response as server-sent data events."""
 
     async def generate_stream():
         rag_tracer = RAGTracer(langfuse_tracer)
@@ -172,8 +183,8 @@ async def ask_question_stream(
                 if cache_client:
                     try:
                         cached_response = await cache_client.find_cached_response(request)
-                        if cached_response:
-                            logger.info("Returning cached response for exact streaming query match")
+                        if cached_response and _cache_matches_requested_mode(request, cached_response):
+                            logger.info("Returning cached response for exact streaming query and retrieval-mode match")
 
                             metadata_response = {
                                 "sources": cached_response.sources,
@@ -187,8 +198,10 @@ async def ask_question_stream(
 
                             yield f"data: {json.dumps({'answer': cached_response.answer, 'done': True})}\n\n"
                             return
-                    except Exception as e:
-                        logger.warning(f"Cache check failed, proceeding with normal flow: {e}")
+                        if cached_response:
+                            logger.info("Ignoring cached degraded retrieval result for streaming request")
+                    except Exception as exc:
+                        logger.warning("Cache check failed, proceeding with normal flow: %s", exc)
 
                 chunks, sources, _, search_mode = await _prepare_chunks_and_sources(
                     request, opensearch_client, embeddings_service, rag_tracer, trace
@@ -233,21 +246,22 @@ async def ask_question_stream(
                 rag_tracer.end_request(trace, full_response, time.time() - start_time)
 
                 if cache_client and full_response:
-                    try:
-                        response_to_cache = AskResponse(
-                            query=request.query,
-                            answer=full_response,
-                            sources=sources,
-                            chunks_used=len(chunks),
-                            search_mode=search_mode,
-                        )
-                        await cache_client.store_response(request, response_to_cache)
-                    except Exception as e:
-                        logger.warning(f"Failed to store streaming response in cache: {e}")
+                    response_to_cache = AskResponse(
+                        query=request.query,
+                        answer=full_response,
+                        sources=sources,
+                        chunks_used=len(chunks),
+                        search_mode=search_mode,
+                    )
+                    if _cache_matches_requested_mode(request, response_to_cache):
+                        try:
+                            await cache_client.store_response(request, response_to_cache)
+                        except Exception as exc:
+                            logger.warning("Failed to store streaming response in cache: %s", exc)
 
-            except Exception as e:
-                logger.error(f"Streaming error: {e}")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            except Exception:
+                logger.exception("Streaming RAG request failed")
+                yield f"data: {json.dumps({'error': 'Unable to process the streaming request'})}\n\n"
 
     return StreamingResponse(
         generate_stream(), media_type="text/plain", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
