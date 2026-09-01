@@ -13,28 +13,28 @@
 
 ## Product overview
 
-**Falco Agentic RAG** is a deployable research-intelligence platform for teams that need grounded answers from a continuously indexed technical knowledge base. The included reference deployment is optimized for arXiv computer-science research, while the architecture keeps ingestion, retrieval, generation, state, and observability modular.
+**Falco Agentic RAG** is a deployable research-intelligence platform for teams that need grounded answers from an indexed technical knowledge base. The included reference deployment is optimized for arXiv computer-science research, while the architecture keeps ingestion, retrieval, generation, state, and observability modular.
 
 Falco combines two paths:
 
 - **Knowledge pipeline:** arXiv → PDF parsing → PostgreSQL → chunking → embeddings → OpenSearch.
 - **Serving platform:** FastAPI → search / conventional RAG / streaming RAG / Agentic RAG → OpenSearch + Ollama, with Redis and Langfuse around the request flow.
 
-PostgreSQL is the canonical document store. OpenSearch is the retrieval model. Ollama provides local inference. Jina provides retrieval embeddings. Airflow automates ingestion. Redis provides response caching and Agentic session history. Langfuse provides tracing and feedback.
+PostgreSQL is the canonical document store. OpenSearch is the retrieval model. Ollama provides local inference. Jina provides retrieval embeddings. Airflow automates ingestion. Redis provides response caching and optional Agentic session history. Langfuse provides optional tracing and feedback.
 
 ## Core capabilities
 
 | Capability | What Falco provides |
 |---|---|
 | Automated ingestion | Scheduled arXiv discovery, PDF download, Docling parsing, persistence, and indexing |
-| Hybrid retrieval | BM25 + vector retrieval with Reciprocal Rank Fusion and category filters |
+| Hybrid retrieval | BM25 + vector retrieval with Reciprocal Rank Fusion, pagination, score thresholds, and category filters |
 | Agentic RAG | Guardrails, retrieval, document grading, query rewriting, bounded retries, and grounded generation |
-| Graceful degradation | Automatic BM25 fallback when query embeddings are unavailable |
-| Conversation sessions | Redis-backed bounded Agentic history shared across API workers |
+| Graceful degradation | Automatic BM25 fallback when query embeddings are unavailable; Redis failures do not block stateless serving |
+| Conversation sessions | Redis-backed bounded Agentic history for explicit client session IDs, shared across API workers |
 | Local inference | Ollama-backed generation without sending prompts to a hosted LLM provider |
-| Observability | Langfuse traces for RAG/graph execution plus feedback capture |
+| Observability | Optional Langfuse traces for RAG/graph execution plus feedback capture |
 | Multi-channel access | REST API, streaming API, Falco Research Console, and optional Telegram interface |
-| Orchestration | Docker Compose stack and scheduled Airflow ingestion |
+| Orchestration | Docker Compose reference stack and scheduled Airflow ingestion |
 
 ## Architecture
 
@@ -75,7 +75,7 @@ PostgreSQL is the canonical document store. OpenSearch is the retrieval model. O
      │       │              │
      │    Redis cache     LangGraph
      │                      │
-     │                  Redis sessions
+     │                optional Redis session
      │                      │
      └──────────────► OpenSearch
                          │
@@ -125,7 +125,7 @@ Grade Documents
           └────────────► Retrieve
 ```
 
-Request-level `model`, `top_k`, retrieval mode, categories, and optional `session_id` are applied to graph execution. Responses expose the effective search mode, actual source URLs, chunks used, retrieval attempts, trace ID, and a compact reasoning summary.
+Request-level `model`, `top_k`, retrieval mode, categories, and optional `session_id` are applied to graph execution. Responses expose the effective search mode, actual source URLs, chunks used, retrieval attempts, rewritten-query metadata when applicable, trace ID when available, and a compact reasoning summary.
 
 ## Quick start
 
@@ -136,7 +136,7 @@ Request-level `model`, `top_k`, retrieval mode, categories, and optional `sessio
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - Jina API key for hybrid/vector retrieval
 - an Ollama model available to the Ollama service
-- optional Langfuse credentials
+- optional Langfuse project credentials
 - optional Telegram bot token
 
 ### Start Falco
@@ -148,7 +148,10 @@ cp .env.example .env
 uv sync
 docker compose up --build -d
 curl http://localhost:8000/api/v1/health
+curl -f http://localhost:8000/api/v1/ready
 ```
+
+The reference Compose stack publishes host ports on `127.0.0.1` by default through `FALCO_BIND_ADDRESS`, reducing accidental network exposure. Production ingress, TLS, authentication, database isolation, and service hardening remain explicit deployment responsibilities.
 
 Interactive API documentation is available at `http://localhost:8000/docs`.
 
@@ -164,7 +167,8 @@ The local console is available at `http://localhost:7861`.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/v1/health` | Platform health and dependency status |
+| GET | `/api/v1/health` | Diagnostic platform and dependency status |
+| GET | `/api/v1/ready` | Readiness probe; HTTP 503 when required RAG dependencies are degraded |
 | POST | `/api/v1/hybrid-search/` | BM25 or hybrid chunk retrieval |
 | POST | `/api/v1/ask` | Conventional grounded RAG |
 | POST | `/api/v1/stream` | Streaming conventional RAG |
@@ -188,7 +192,9 @@ See [`docs/API.md`](docs/API.md) for integration details.
 
 ## Retrieval behavior
 
-BM25 remains a first-class retrieval path. When a query embedding is available, Falco executes keyword and vector branches and fuses their rankings using Reciprocal Rank Fusion (`rank_constant=60`). If query embedding fails, retrieval falls back to BM25 instead of failing the request.
+BM25 remains a first-class retrieval path. When a query embedding is available, Falco executes keyword and vector branches and fuses their rankings using Reciprocal Rank Fusion. Category filters apply across the hybrid query and pagination uses OpenSearch hybrid pagination depth. `latest_papers=true` intentionally uses date-sorted BM25 instead of mixing newest-first ordering with relevance fusion.
+
+If query embedding fails, retrieval falls back to BM25 instead of failing the request and the effective response mode is reported as `bm25`.
 
 ```text
 text query ─────► BM25 ──┐
@@ -200,18 +206,22 @@ query embedding ─► kNN ──┘
 
 Redis serves two independent responsibilities:
 
-- **Exact response cache** for conventional RAG. Cache identity includes query, model, `top_k`, retrieval mode, and categories.
-- **Agentic session history** for explicit `session_id` values. Recent user/assistant turns are bounded and expire using the configured Redis TTL.
+- **Exact response cache** for conventional RAG. Cache identity includes query, model, `top_k`, requested retrieval mode, and categories. A hybrid request that temporarily degrades to BM25 is not stored as a valid hybrid cache result.
+- **Agentic session history** for explicit `session_id` values. Recent user/assistant turns are appended atomically, bounded, versioned by storage namespace, and expire using the configured Redis TTL.
 
-Requests without a `session_id` are isolated. Redis-backed history is shared across the four Uvicorn workers used by the default Docker image.
+Requests without a `session_id` are isolated and do not expose Falco's internal graph thread identifier as a reusable public session. Redis-backed history is shared across the four Uvicorn workers used by the default Docker image.
+
+Redis connectivity is lazy/fail-open: cache or session failures do not prevent normal stateless requests, and recovered Redis connectivity can be used by later requests without restarting the API.
 
 ## Observability
 
-Falco targets Langfuse 3.x. Major RAG and graph operations are traced, including guardrails, retrieval, grading, rewriting, and generation. Tracing is optional; the core retrieval/generation path can run with Langfuse disabled.
+Falco targets Langfuse 3.x. Major RAG and graph operations can be traced, including guardrails, retrieval, grading, rewriting, and generation. Tracing is disabled by default until a real Langfuse project and public/secret keys are configured.
+
+The self-hosted reference stack bootstraps the Falco organization/admin user but does not claim to create a project from a name alone. Public Langfuse and media URLs are configurable separately from container-internal MinIO access.
 
 ## Ingestion automation
 
-The `arxiv_paper_ingestion` Airflow DAG runs Monday through Friday at 06:00 UTC by default:
+The `arxiv_paper_ingestion` Airflow DAG runs daily at 06:00 UTC by default and targets the previous calendar date:
 
 ```text
 setup_environment
@@ -225,9 +235,13 @@ generate_daily_report
 cleanup_temp_files
 ```
 
+The daily schedule prevents systematic Friday/weekend target-date gaps. Because `catchup=false`, a multi-day Airflow outage still requires an explicit backfill/checkpoint procedure.
+
 See [`airflow/README.md`](airflow/README.md) for pipeline operations.
 
 ## Service endpoints
+
+All reference Compose host bindings default to loopback.
 
 | Service | Default local endpoint |
 |---|---|
@@ -250,7 +264,7 @@ See [`airflow/README.md`](airflow/README.md) for pipeline operations.
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment and production checklist
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — health, ingestion, recovery, and backups
 - [`SECURITY.md`](SECURITY.md) — deployment security requirements
-- [`CHANGELOG.md`](CHANGELOG.md) — product release history
+- [`CHANGELOG.md`](CHANGELOG.md) — candidate/release change history
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — upstream licensing notices
 
 ## Repository structure
@@ -266,22 +280,23 @@ See [`airflow/README.md`](airflow/README.md) for pipeline operations.
 ├── airflow/                     # scheduled ingestion pipeline
 ├── docs/                        # product documentation and architecture assets
 ├── tests/                       # automated test suite
-├── compose.yml                  # self-hosted service stack
+├── compose.yml                  # self-hosted reference stack
 └── gradio_launcher.py           # Falco Research Console launcher
 ```
 
-## Development
+## Development and release checks
 
 ```bash
 uv sync
-uv run pytest
+make lock-check
 make lint
-make format
-make start
+make test
 make health
 ```
 
-The project targets Python `>=3.12,<3.13` and uses Ruff, MyPy, Pytest, and pre-commit tooling.
+`make lock-check` verifies that `uv.lock` matches `pyproject.toml` without modifying it. The current productization branch still requires a real `uv lock` regeneration and full test/build/smoke execution before `1.0.0` should be tagged.
+
+The project targets Python `>=3.12,<3.13` and uses Ruff, MyPy, Pytest, and pre-commit tooling. The API runtime container runs as a non-root user.
 
 ## Technology references
 
