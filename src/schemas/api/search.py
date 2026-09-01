@@ -8,7 +8,7 @@ class SearchRequest(BaseModel):
 
     query: str = Field(..., min_length=1, max_length=500, description="Search query across title, abstract, and authors")
     size: int = Field(default=10, ge=1, le=50, description="Number of results to return")
-    from_: int = Field(default=0, ge=0, alias="from", description="Offset for pagination")
+    from_: int = Field(default=0, ge=0, le=9950, alias="from", description="Offset for pagination")
     categories: Optional[List[str]] = Field(default=None, description="Filter by categories")
     latest_papers: bool = Field(default=False, description="Sort by publication date (newest first) instead of relevance")
 
@@ -18,7 +18,13 @@ class HybridSearchRequest(BaseModel):
 
     query: str = Field(..., description="Search query text", min_length=1, max_length=500)
     size: int = Field(10, description="Number of results to return", ge=1, le=100)
-    from_: int = Field(0, description="Offset for pagination", ge=0, alias="from")
+    from_: int = Field(
+        0,
+        description="Offset for pagination; bounded so from + maximum page size stays within OpenSearch's default result window",
+        ge=0,
+        le=9900,
+        alias="from",
+    )
     categories: Optional[List[str]] = Field(None, description="Filter by arXiv categories (e.g., ['cs.AI', 'cs.LG'])")
     latest_papers: bool = Field(False, description="Sort by publication date instead of relevance")
     use_hybrid: bool = Field(True, description="Enable hybrid search (BM25 + vector) with automatic embedding generation")
@@ -49,7 +55,6 @@ class SearchHit(BaseModel):
     score: float
     highlights: Optional[dict] = None
 
-    # Chunk-specific fields (for unified search)
     chunk_text: Optional[str] = Field(None, description="Text content of the matching chunk")
     chunk_id: Optional[str] = Field(None, description="Unique identifier of the chunk")
     section_name: Optional[str] = Field(None, description="Section name where the chunk was found")
