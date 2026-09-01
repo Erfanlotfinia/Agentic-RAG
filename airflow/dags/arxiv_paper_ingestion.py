@@ -24,7 +24,7 @@ dag = DAG(
     "arxiv_paper_ingestion",
     default_args=default_args,
     description="Falco research ingestion: arXiv fetch → PostgreSQL canonical storage → chunking, embeddings, and OpenSearch indexing",
-    schedule="0 6 * * 1-5",
+    schedule="0 6 * * *",
     max_active_runs=1,
     catchup=False,
     tags=["falco", "arxiv", "ingestion", "hybrid-search", "embeddings"],
