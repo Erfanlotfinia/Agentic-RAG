@@ -54,7 +54,8 @@ async def stream_response(
                         sources = data["sources"]
                         chunks_used = data.get("chunks_used", 0)
                         search_mode = data.get("search_mode", "unknown")
-                        continue
+                        if not data.get("done", False):
+                            continue
 
                     if "chunk" in data:
                         current_answer += data["chunk"]
