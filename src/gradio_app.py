@@ -1,20 +1,23 @@
 import json
 import logging
-from typing import Iterator
+import os
+from collections.abc import AsyncIterator
 
 import gradio as gr
 import httpx
 
 logger = logging.getLogger(__name__)
 
-API_BASE_URL = "http://localhost:8000/api/v1"
-DEFAULT_MODEL = "llama3.2:1b"
+API_BASE_URL = os.getenv("FALCO_API_BASE_URL", "http://localhost:8000/api/v1").rstrip("/")
+CONSOLE_BIND_ADDRESS = os.getenv("FALCO_CONSOLE_BIND_ADDRESS", "127.0.0.1")
+CONSOLE_PORT = int(os.getenv("FALCO_CONSOLE_PORT", "7861"))
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
 AVAILABLE_CATEGORIES = ["cs.AI", "cs.LG"]
 
 
 async def stream_response(
     query: str, top_k: int = 3, use_hybrid: bool = True, model: str = DEFAULT_MODEL, categories: str = ""
-) -> Iterator[str]:
+) -> AsyncIterator[str]:
     """Stream a response from the Falco RAG API."""
     if not query.strip():
         yield "Please enter a research question."
@@ -26,7 +29,7 @@ async def stream_response(
     try:
         url = f"{API_BASE_URL}/stream"
         async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream("POST", url, json=payload, headers={"Accept": "text/plain"}) as response:
+            async with client.stream("POST", url, json=payload, headers={"Accept": "text/event-stream"}) as response:
                 if response.status_code != 200:
                     yield f"Falco API returned status {response.status_code}."
                     return
@@ -66,11 +69,12 @@ async def stream_response(
                         yield _format_response(final_answer, sources, chunks_used, search_mode)
                         break
 
-    except httpx.RequestError as exc:
-        yield f"Cannot reach Falco API at {API_BASE_URL}: {exc}"
-    except Exception as exc:
+    except httpx.RequestError:
+        logger.exception("Cannot reach Falco API at %s", API_BASE_URL)
+        yield "Cannot reach the Falco API. Verify the API endpoint and service status."
+    except Exception:
         logger.exception("Falco Research Console request failed")
-        yield f"Unexpected error: {exc}"
+        yield "The request could not be completed. Check the Falco service logs for details."
 
 
 def _format_response(answer: str, sources: list, chunks_used: int, search_mode: str) -> str:
@@ -132,6 +136,7 @@ def create_gradio_interface():
                     model_choice = gr.Dropdown(
                         choices=["llama3.2:1b", "llama3.2:3b", "llama3.1:8b", "qwen2.5:7b"],
                         value=DEFAULT_MODEL,
+                        allow_custom_value=True,
                         label="Ollama model",
                     )
                     categories = gr.Textbox(
@@ -149,9 +154,9 @@ def create_gradio_interface():
 
         gr.Examples(
             examples=[
-                ["What are transformer architectures in machine learning?", 3, True, "llama3.2:1b", "cs.AI, cs.LG"],
-                ["How does retrieval augmented generation reduce hallucination?", 5, True, "llama3.2:1b", "cs.AI, cs.CL"],
-                ["Explain recent approaches to efficient attention.", 4, True, "llama3.2:1b", "cs.AI, cs.LG"],
+                ["What are transformer architectures in machine learning?", 3, True, DEFAULT_MODEL, "cs.AI, cs.LG"],
+                ["How does retrieval augmented generation reduce hallucination?", 5, True, DEFAULT_MODEL, "cs.AI, cs.CL"],
+                ["Explain recent approaches to efficient attention.", 4, True, DEFAULT_MODEL, "cs.AI, cs.LG"],
             ],
             inputs=[query_input, top_k, use_hybrid, model_choice, categories],
         )
@@ -170,9 +175,9 @@ def create_gradio_interface():
         )
 
         gr.Markdown(
-            """
+            f"""
             ---
-            **Falco Research Console** uses the streaming API at `http://localhost:8000/api/v1` by default.
+            **Falco Research Console** uses the streaming API at `{API_BASE_URL}`.
             Configure retrieval and model options to match your deployment and indexed corpus.
             """
         )
@@ -184,8 +189,15 @@ def main():
     """Start the Falco Research Console."""
     print("Starting Falco Agentic RAG Research Console...")
     print(f"API Base URL: {API_BASE_URL}")
+    print(f"Console URL: http://{CONSOLE_BIND_ADDRESS}:{CONSOLE_PORT}")
     interface = create_gradio_interface()
-    interface.launch(server_name="0.0.0.0", server_port=7861, share=False, show_error=True, quiet=False)
+    interface.launch(
+        server_name=CONSOLE_BIND_ADDRESS,
+        server_port=CONSOLE_PORT,
+        share=False,
+        show_error=False,
+        quiet=False,
+    )
 
 
 if __name__ == "__main__":
