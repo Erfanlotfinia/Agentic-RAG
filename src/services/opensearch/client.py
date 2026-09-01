@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from opensearchpy import OpenSearch
 from src.config import Settings
+from src.exceptions import OpenSearchException
 
 from .index_config_hybrid import ARXIV_PAPERS_CHUNKS_MAPPING, HYBRID_RRF_PIPELINE
 from .query_builder import QueryBuilder
@@ -29,6 +30,10 @@ class OpenSearchClient:
         )
 
         logger.info(f"OpenSearch client initialized with host: {host}")
+
+    def close(self) -> None:
+        """Close the underlying OpenSearch transport."""
+        self.client.close()
 
     def health_check(self) -> bool:
         """Check if OpenSearch cluster is healthy."""
@@ -208,9 +213,9 @@ class OpenSearchClient:
                 min_score=min_score,
             )
 
-        except Exception as e:
-            logger.error(f"Unified search error: {e}")
-            return {"total": 0, "hits": []}
+        except Exception as exc:
+            logger.exception("Unified OpenSearch request failed")
+            raise OpenSearchException("Search backend request failed") from exc
 
     def _search_bm25_only(
         self,
