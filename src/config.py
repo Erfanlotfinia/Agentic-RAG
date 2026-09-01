@@ -76,10 +76,10 @@ class ChunkingSettings(BaseConfigSettings):
         case_sensitive=False,
     )
 
-    chunk_size: int = 600  # Target words per chunk
-    overlap_size: int = 100  # Words to overlap between chunks
-    min_chunk_size: int = 100  # Minimum words for a valid chunk
-    section_based: bool = True  # Use section-based chunking when available
+    chunk_size: int = 600
+    overlap_size: int = 100
+    min_chunk_size: int = 100
+    section_based: bool = True
 
 
 class OpenSearchSettings(BaseConfigSettings):
@@ -93,16 +93,12 @@ class OpenSearchSettings(BaseConfigSettings):
 
     host: str = "http://localhost:9200"
     index_name: str = "arxiv-papers"
-    chunk_index_suffix: str = "chunks"  # Creates single hybrid index: {index_name}-{suffix}
+    chunk_index_suffix: str = "chunks"
     max_text_size: int = 1000000
-
-    # Vector search settings
-    vector_dimension: int = 1024  # Jina embeddings dimension
-    vector_space_type: str = "cosinesimil"  # cosinesimil, l2, innerproduct
-
-    # Hybrid search settings
+    vector_dimension: int = 1024
+    vector_space_type: str = "cosinesimil"
     rrf_pipeline_name: str = "hybrid-rrf-pipeline"
-    hybrid_search_size_multiplier: int = 2  # Get k*multiplier for better recall
+    hybrid_search_size_multiplier: int = 2
 
 
 class LangfuseSettings(BaseConfigSettings):
@@ -116,10 +112,10 @@ class LangfuseSettings(BaseConfigSettings):
 
     public_key: str = ""
     secret_key: str = ""
-    host: str = "http://localhost:3000"  # Self-hosted Langfuse URL
+    host: str = "http://localhost:3001"
     enabled: bool = True
-    flush_at: int = 15  # Number of events before flushing
-    flush_interval: float = 1.0  # Seconds between flushes
+    flush_at: int = 15
+    flush_interval: float = 1.0
     max_retries: int = 3
     timeout: int = 30
     debug: bool = False
@@ -141,9 +137,7 @@ class RedisSettings(BaseConfigSettings):
     decode_responses: bool = True
     socket_timeout: int = 30
     socket_connect_timeout: int = 30
-
-    # Cache settings
-    ttl_hours: int = 6  # Cache TTL in hours
+    ttl_hours: int = 6
 
 
 class TelegramSettings(BaseConfigSettings):
@@ -174,7 +168,6 @@ class Settings(BaseConfigSettings):
     ollama_model: str = "llama3.2:1b"
     ollama_timeout: int = 300
 
-    # Jina AI embeddings configuration
     jina_api_key: str = ""
 
     arxiv: ArxivSettings = Field(default_factory=ArxivSettings)

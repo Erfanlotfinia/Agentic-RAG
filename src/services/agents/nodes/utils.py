@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Dict, List, Optional
 
@@ -8,42 +9,97 @@ from ..models import ReasoningStep, SourceItem, ToolArtefact
 logger = logging.getLogger(__name__)
 
 
+def _parse_tool_payload(message: ToolMessage) -> Dict:
+    if getattr(message, "name", None) != "retrieve_papers":
+        return {}
+
+    content = message.content if hasattr(message, "content") else ""
+    if not isinstance(content, str):
+        return {}
+
+    try:
+        payload = json.loads(content)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_tool_documents(message: ToolMessage) -> List[Dict]:
+    payload = _parse_tool_payload(message)
+    documents = payload.get("documents", [])
+    return documents if isinstance(documents, list) else []
+
+
+def get_latest_retrieval_payload(messages: List) -> Dict:
+    """Return the most recent retrieve_papers payload."""
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage) and getattr(msg, "name", None) == "retrieve_papers":
+            return _parse_tool_payload(msg)
+    return {}
+
+
+def get_latest_retrieved_documents(messages: List) -> List[Dict]:
+    """Return documents from the most recent retrieve_papers tool call."""
+    payload = get_latest_retrieval_payload(messages)
+    documents = payload.get("documents", []) if payload else []
+    return documents if isinstance(documents, list) else []
+
+
+def get_latest_search_mode(messages: List, default: str = "bm25") -> str:
+    """Return the effective search mode reported by the latest retriever call."""
+    payload = get_latest_retrieval_payload(messages)
+    mode = payload.get("search_mode") if payload else None
+    return mode if mode in {"bm25", "hybrid"} else default
+
+
 def extract_sources_from_tool_messages(messages: List) -> List[SourceItem]:
-    """Extract sources from tool messages in conversation.
+    """Extract deduplicated sources from the most recent retrieval result."""
+    documents = get_latest_retrieved_documents(messages)
+    sources: List[SourceItem] = []
+    seen_ids = set()
 
-    :param messages: List of messages from graph state
-    :returns: List of SourceItem objects
-    """
-    sources = []
+    for document in documents:
+        metadata = document.get("metadata", {}) if isinstance(document, dict) else {}
+        arxiv_id = str(metadata.get("arxiv_id", ""))
+        if not arxiv_id or arxiv_id in seen_ids:
+            continue
 
-    for msg in messages:
-        if isinstance(msg, ToolMessage) and hasattr(msg, "name"):
-            if msg.name == "retrieve_papers":
-                # Parse tool response for sources
-                # This would need to parse the actual document metadata
-                # For now, return empty list
-                pass
+        authors = metadata.get("authors", [])
+        if isinstance(authors, str):
+            authors = [author.strip() for author in authors.split(",") if author.strip()]
+        elif not isinstance(authors, list):
+            authors = []
+
+        sources.append(
+            SourceItem(
+                arxiv_id=arxiv_id,
+                title=str(metadata.get("title", "")),
+                authors=[str(author) for author in authors],
+                url=str(metadata.get("source", "")),
+                relevance_score=float(metadata.get("score", 0.0) or 0.0),
+            )
+        )
+        seen_ids.add(arxiv_id)
 
     return sources
 
 
 def extract_tool_artefacts(messages: List) -> List[ToolArtefact]:
-    """Extract tool artifacts from messages.
-
-    :param messages: List of messages from graph state
-    :returns: List of ToolArtefact objects
-    """
+    """Extract tool artifacts from messages."""
     artefacts = []
 
     for msg in messages:
         if isinstance(msg, ToolMessage):
-            artefact = ToolArtefact(
-                tool_name=getattr(msg, "name", "unknown"),
-                tool_call_id=getattr(msg, "tool_call_id", ""),
-                content=msg.content,
-                metadata={},
+            parsed_content = _parse_tool_payload(msg) or msg.content
+            artefacts.append(
+                ToolArtefact(
+                    tool_name=getattr(msg, "name", "unknown"),
+                    tool_call_id=getattr(msg, "tool_call_id", ""),
+                    content=parsed_content,
+                    metadata={},
+                )
             )
-            artefacts.append(artefact)
 
     return artefacts
 
@@ -53,13 +109,7 @@ def create_reasoning_step(
     description: str,
     metadata: Optional[Dict] = None,
 ) -> ReasoningStep:
-    """Create a reasoning step record.
-
-    :param step_name: Name of the step/node
-    :param description: Human-readable description
-    :param metadata: Additional metadata
-    :returns: ReasoningStep object
-    """
+    """Create a reasoning step record."""
     return ReasoningStep(
         step_name=step_name,
         description=description,
@@ -68,23 +118,12 @@ def create_reasoning_step(
 
 
 def filter_messages(messages: List) -> List[AIMessage | HumanMessage]:
-    """Filter messages to include only HumanMessage and AIMessage types.
-
-    Excludes tool messages and other internal message types.
-
-    :param messages: List of messages to filter
-    :returns: Filtered list of messages
-    """
+    """Filter messages to user/assistant messages."""
     return [msg for msg in messages if isinstance(msg, (HumanMessage, AIMessage))]
 
 
 def get_latest_query(messages: List) -> str:
-    """Get the latest user query from messages.
-
-    :param messages: List of messages
-    :returns: Latest query text
-    :raises ValueError: If no user query found
-    """
+    """Get the latest user query from messages."""
     for msg in reversed(messages):
         if isinstance(msg, HumanMessage):
             return msg.content
@@ -93,13 +132,22 @@ def get_latest_query(messages: List) -> str:
 
 
 def get_latest_context(messages: List) -> str:
-    """Get the latest context from tool messages.
-
-    :param messages: List of messages
-    :returns: Latest context text or empty string
-    """
+    """Get clean text context from the latest retrieval tool message."""
     for msg in reversed(messages):
-        if isinstance(msg, ToolMessage):
-            return msg.content if hasattr(msg, "content") else ""
+        if not isinstance(msg, ToolMessage):
+            continue
+
+        documents = _parse_tool_documents(msg)
+        if documents:
+            rendered = []
+            for document in documents:
+                metadata = document.get("metadata", {})
+                title = metadata.get("title", "Untitled")
+                arxiv_id = metadata.get("arxiv_id", "unknown")
+                content = document.get("page_content", "")
+                rendered.append(f"[{title} | arXiv:{arxiv_id}]\n{content}")
+            return "\n\n".join(rendered)
+
+        return msg.content if hasattr(msg, "content") else ""
 
     return ""

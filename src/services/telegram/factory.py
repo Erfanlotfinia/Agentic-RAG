@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 
 from src.config import get_settings
+from src.services.agents.agentic_rag import AgenticRAGService
 from src.services.telegram.bot import TelegramBot
 
 logger = logging.getLogger(__name__)
@@ -10,23 +11,9 @@ logger = logging.getLogger(__name__)
 def make_telegram_service(
     opensearch_client,
     embeddings_client,
-    ollama_client,
-    cache_client=None,
-    langfuse_tracer=None,
+    agentic_rag_service: AgenticRAGService,
 ) -> Optional[TelegramBot]:
-    """
-    Create Telegram bot if enabled.
-
-    Args:
-        opensearch_client: OpenSearch client
-        embeddings_client: Embeddings service client
-        ollama_client: Ollama LLM client
-        cache_client: Optional cache client
-        langfuse_tracer: Optional Langfuse tracer (not used)
-
-    Returns:
-        TelegramBot instance or None if disabled
-    """
+    """Create the optional Telegram bot using the shared Agentic RAG service."""
     settings = get_settings()
 
     if not settings.telegram.enabled:
@@ -37,13 +24,9 @@ def make_telegram_service(
         logger.warning("Telegram bot token not configured")
         return None
 
-    bot = TelegramBot(
+    return TelegramBot(
         bot_token=settings.telegram.bot_token,
         opensearch_client=opensearch_client,
         embeddings_client=embeddings_client,
-        ollama_client=ollama_client,
-        cache_client=cache_client,
+        agentic_rag_service=agentic_rag_service,
     )
-
-    logger.info("Telegram bot created successfully")
-    return bot
