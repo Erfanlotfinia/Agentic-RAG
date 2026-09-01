@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .common import get_cached_services
 
@@ -8,10 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_daily_report(**context):
-    """Generate a daily report of the ingestion pipeline results.
-
-    Collects statistics from all previous tasks and generates a summary report.
-    """
+    """Generate an operational summary from completed ingestion tasks."""
     logger.info("Generating daily ingestion report")
 
     ti = context.get("ti")
@@ -21,9 +18,19 @@ def generate_daily_report(**context):
 
     fetch_stats = ti.xcom_pull(task_ids="fetch_daily_papers", key="fetch_results") or {}
     hybrid_stats = ti.xcom_pull(task_ids="index_papers_hybrid", key="hybrid_index_stats") or {}
+    indexing_errors = int(hybrid_stats.get("total_errors", 0) or 0)
+    papers_failed = int(hybrid_stats.get("papers_failed", 0) or 0)
 
+    if not fetch_stats or not hybrid_stats:
+        pipeline_status = "partial"
+    elif indexing_errors > 0 or papers_failed > 0:
+        pipeline_status = "failed"
+    else:
+        pipeline_status = "success"
+
+    logical_date = context.get("logical_date") or context.get("data_interval_end") or datetime.now(timezone.utc)
     report = {
-        "execution_date": context.get("execution_date", datetime.now()).isoformat(),
+        "logical_date": logical_date.isoformat(),
         "fetch_statistics": {
             "papers_fetched": fetch_stats.get("papers_fetched", 0),
             "papers_stored": fetch_stats.get("papers_stored", 0),
@@ -31,11 +38,13 @@ def generate_daily_report(**context):
         },
         "indexing_statistics": {
             "papers_processed": hybrid_stats.get("papers_processed", 0),
+            "papers_failed": papers_failed,
             "chunks_created": hybrid_stats.get("total_chunks_created", 0),
             "chunks_indexed": hybrid_stats.get("total_chunks_indexed", 0),
             "embeddings_generated": hybrid_stats.get("total_embeddings_generated", 0),
+            "errors": indexing_errors,
         },
-        "pipeline_status": "success" if fetch_stats and hybrid_stats else "partial",
+        "pipeline_status": pipeline_status,
     }
 
     try:
@@ -51,9 +60,7 @@ def generate_daily_report(**context):
         if opensearch_client.health_check():
             try:
                 stats_response = opensearch_client.client.indices.stats(index=opensearch_client.index_name)
-
                 count_response = opensearch_client.client.count(index=opensearch_client.index_name)
-
                 index_stats = stats_response["indices"][opensearch_client.index_name]["total"]
 
                 report["opensearch_statistics"] = {
@@ -61,16 +68,16 @@ def generate_daily_report(**context):
                     "document_count": count_response["count"],
                     "index_size_mb": round(index_stats["store"]["size_in_bytes"] / (1024 * 1024), 2),
                 }
-            except Exception as stats_error:
-                logger.error(f"Failed to get OpenSearch statistics: {stats_error}")
-                report["opensearch_statistics"] = {"index_name": opensearch_client.index_name, "error": str(stats_error)}
-    except Exception as e:
-        logger.error(f"Failed to get statistics: {e}")
-        report["error"] = str(e)
+            except Exception:
+                logger.exception("Failed to collect OpenSearch statistics for ingestion report")
+                report["opensearch_statistics"] = {
+                    "index_name": opensearch_client.index_name,
+                    "status": "unavailable",
+                }
+    except Exception:
+        logger.exception("Failed to collect supplemental ingestion statistics")
+        report["supplemental_statistics_status"] = "unavailable"
 
-    logger.info("Daily Ingestion Report:")
-    logger.info(json.dumps(report, indent=2))
-
+    logger.info("Daily ingestion report: %s", json.dumps(report, indent=2))
     ti.xcom_push(key="daily_report", value=report)
-
     return report
