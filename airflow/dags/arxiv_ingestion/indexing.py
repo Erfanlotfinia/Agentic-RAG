@@ -36,8 +36,19 @@ async def _index_papers_with_chunks(papers):
         await indexing_service.close()
 
 
+def _empty_stats() -> dict:
+    return {
+        "papers_processed": 0,
+        "papers_failed": 0,
+        "total_chunks_created": 0,
+        "total_chunks_indexed": 0,
+        "total_embeddings_generated": 0,
+        "total_errors": 0,
+    }
+
+
 def index_papers_hybrid(**context):
-    """Index recently ingested papers with chunking and vector embeddings."""
+    """Index the exact papers persisted by the upstream fetch task."""
     database = make_database()
     try:
         ti = context.get("ti")
@@ -46,29 +57,42 @@ def index_papers_hybrid(**context):
         with database.get_session() as session:
             from src.models.paper import Paper
 
-            if fetch_results and fetch_results.get("papers_stored", 0) > 0:
-                from sqlalchemy import desc
+            if fetch_results is not None:
+                stored_arxiv_ids = list(dict.fromkeys(fetch_results.get("stored_arxiv_ids", [])))
+                expected_count = int(fetch_results.get("papers_stored", 0) or 0)
 
-                papers = session.query(Paper).order_by(desc(Paper.created_at)).limit(fetch_results["papers_stored"]).all()
+                if expected_count != len(stored_arxiv_ids):
+                    raise RuntimeError(
+                        "Fetch/index handoff is inconsistent: papers_stored does not match stored_arxiv_ids"
+                    )
+
+                if not stored_arxiv_ids:
+                    logger.info("Fetch task stored no papers; nothing to index")
+                    stats = _empty_stats()
+                    if ti:
+                        ti.xcom_push(key="hybrid_index_stats", value=stats)
+                    return stats
+
+                papers = session.query(Paper).filter(Paper.arxiv_id.in_(stored_arxiv_ids)).all()
+                found_ids = {paper.arxiv_id for paper in papers}
+                missing_ids = [arxiv_id for arxiv_id in stored_arxiv_ids if arxiv_id not in found_ids]
+                if missing_ids:
+                    raise RuntimeError(
+                        f"Fetch/index handoff references {len(missing_ids)} paper(s) missing from PostgreSQL"
+                    )
             else:
+                # Manual/direct invocation fallback when no upstream Airflow XCom exists.
                 cutoff_date = datetime.now(timezone.utc) - timedelta(days=1)
                 papers = session.query(Paper).filter(Paper.created_at >= cutoff_date).all()
 
             if not papers:
                 logger.info("No papers to index for hybrid search")
-                stats = {
-                    "papers_processed": 0,
-                    "papers_failed": 0,
-                    "total_chunks_created": 0,
-                    "total_chunks_indexed": 0,
-                    "total_embeddings_generated": 0,
-                    "total_errors": 0,
-                }
+                stats = _empty_stats()
                 if ti:
                     ti.xcom_push(key="hybrid_index_stats", value=stats)
                 return stats
 
-            logger.info("Indexing %s papers for hybrid search", len(papers))
+            logger.info("Indexing %s exact paper(s) from the current ingestion handoff", len(papers))
             stats = asyncio.run(_index_papers_with_chunks(papers))
 
             if ti:
