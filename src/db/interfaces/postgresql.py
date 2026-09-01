@@ -24,11 +24,15 @@ class PostgreSQLDatabase(BaseDatabase):
         self.session_factory: Optional[sessionmaker] = None
 
     def startup(self) -> None:
-        """Initialize the database connection."""
+        """Initialize the database connection and ensure registered tables exist."""
         try:
-            # Log connection attempt
+            # Import the model package before create_all so every model that uses
+            # this Base is registered in Base.metadata on a fresh installation.
+            from src import models as _models  # noqa: F401
+
             logger.info(
-                f"Attempting to connect to PostgreSQL at: {self.config.database_url.split('@')[1] if '@' in self.config.database_url else 'localhost'}"
+                "Attempting to connect to PostgreSQL at: %s",
+                self.config.database_url.split("@", 1)[1] if "@" in self.config.database_url else "localhost",
             )
 
             self.engine = create_engine(
@@ -36,41 +40,39 @@ class PostgreSQLDatabase(BaseDatabase):
                 echo=self.config.echo_sql,
                 pool_size=self.config.pool_size,
                 max_overflow=self.config.max_overflow,
-                pool_pre_ping=True,  # Verify connections before use
+                pool_pre_ping=True,
             )
 
             self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
 
-            # Test the connection
             assert self.engine is not None
             with self.engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
                 logger.info("Database connection test successful")
 
-            # Check which tables exist before creating
-            inspector = inspect(self.engine)
-            existing_tables = inspector.get_table_names()
+            existing_tables = inspect(self.engine).get_table_names()
 
-            # Create tables if they don't exist (idempotent operation)
+            # This bootstraps missing tables for a fresh installation. Versioned
+            # schema upgrades still require a dedicated migration workflow.
             Base.metadata.create_all(bind=self.engine)
 
-            # Check if any new tables were created
-            updated_tables = inspector.get_table_names()
+            # Use a fresh inspector so table metadata is not served from the
+            # pre-create inspector cache.
+            updated_tables = inspect(self.engine).get_table_names()
             new_tables = set(updated_tables) - set(existing_tables)
 
             if new_tables:
-                logger.info(f"Created new tables: {', '.join(new_tables)}")
+                logger.info("Created new tables: %s", ", ".join(sorted(new_tables)))
             else:
-                logger.info("All tables already exist - no new tables created")
+                logger.info("All registered tables already exist - no new tables created")
 
             logger.info("PostgreSQL database initialized successfully")
-            assert self.engine is not None
-            logger.info(f"Database: {self.engine.url.database}")
-            logger.info(f"Total tables: {', '.join(updated_tables) if updated_tables else 'None'}")
+            logger.info("Database: %s", self.engine.url.database)
+            logger.info("Total tables: %s", ", ".join(updated_tables) if updated_tables else "None")
             logger.info("Database connection established")
 
-        except Exception as e:
-            logger.error(f"Failed to initialize PostgreSQL database: {e}")
+        except Exception:
+            logger.exception("Failed to initialize PostgreSQL database")
             raise
 
     def teardown(self) -> None:
@@ -81,7 +83,7 @@ class PostgreSQLDatabase(BaseDatabase):
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
-        """Get a database session."""
+        """Get a database session context manager."""
         if not self.session_factory:
             raise RuntimeError("Database not initialized. Call startup() first.")
 
