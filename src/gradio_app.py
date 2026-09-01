@@ -111,12 +111,12 @@ def create_gradio_interface():
     """Create and configure the Gradio interface"""
 
     with gr.Blocks(
-        title="Falco - RAG Chat",
+        title="arXiv Paper Curator - RAG Chat",
         theme=gr.themes.Soft(),
     ) as interface:
         gr.Markdown(
             """
-            # 🔬 Falco - RAG Chat
+            # 🔬 arXiv Paper Curator - RAG Chat
             
             Ask questions about machine learning and AI research papers from arXiv.
             The system will search through indexed papers and provide answers with sources.
@@ -211,7 +211,7 @@ def create_gradio_interface():
 
 def main():
     """Main entry point for the Gradio app"""
-    print("🚀 Starting Falco Gradio Interface...")
+    print("🚀 Starting arXiv Paper Curator Gradio Interface...")
     print(f"📡 API Base URL: {API_BASE_URL}")
 
     interface = create_gradio_interface()

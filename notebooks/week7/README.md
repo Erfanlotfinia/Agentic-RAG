@@ -1,24 +1,24 @@
-# Module 7: Agentic RAG with LangGraph + Telegram Bot
+# Week 7: Agentic RAG with LangGraph + Telegram Bot
 
 ## Overview
 
-Module 7 adds TWO major enhancements to the Falco:
+Week 7 adds TWO major enhancements to the arXiv Paper Curator:
 
-1. **Agentic RAG with LangGraph** — Intelligent, adaptive retrieval with decision-making
-2. **Telegram Bot Integration** — Conversational interface for mobile/desktop access
+1. **🤖 Agentic RAG with LangGraph** - Intelligent, adaptive retrieval with decision-making
+2. **💬 Telegram Bot Integration** - Conversational interface for mobile/desktop access
 
 ---
 
-## Part 1: Agentic RAG with LangGraph
+## 🧠 Part 1: Agentic RAG with LangGraph
 
 ### What is Agentic RAG?
 
-**Traditional RAG** (Modules 5-6):
+**Traditional RAG** (Weeks 5-6):
 ```
 Query → Always Retrieve → Generate Answer
 ```
 
-**Agentic RAG** (Module 7):
+**Agentic RAG** (Week 7):
 ```
 Query → Agent Decides:
   ├─ Simple question? → Respond directly (faster!)
@@ -29,11 +29,11 @@ Query → Agent Decides:
 
 ### Key Features
 
-- **Intelligent Decision Making** — LLM decides when retrieval is actually needed
-- **Document Grading** — Validates that retrieved papers are relevant
-- **Query Refinement** — Rewrites vague queries for better results
-- **Reasoning Transparency** — Shows the agent's decision-making steps
-- **Iterative Improvement** — Can retry with better queries if needed
+- **🎯 Intelligent Decision Making** - LLM decides when retrieval is actually needed
+- **📊 Document Grading** - Validates that retrieved papers are relevant
+- **🔄 Query Refinement** - Rewrites vague queries for better results
+- **🔍 Reasoning Transparency** - Shows the agent's decision-making steps
+- **♻️ Iterative Improvement** - Can retry with better queries if needed
 
 ### What We Built
 
@@ -125,6 +125,7 @@ curl -X POST http://localhost:8000/api/v1/ask-agentic \
 
 **3. Interactive Testing:**
 ```bash
+# Open Jupyter notebook
 jupyter notebook notebooks/week7/week7_agentic_rag.ipynb
 ```
 
@@ -157,14 +158,14 @@ jupyter notebook notebooks/week7/week7_agentic_rag.ipynb
 - Expected: Agent retrieves, grades as not relevant, rewrites query, tries again
 - Reasoning: "Retrieved" → "Not relevant" → "Rewritten query" → "Retrieved again" → "Generated answer"
 
-### Design Principles
+### Design Principles Followed
 
-- ✅ **SOLID** — Single responsibility, dependency inversion, composition
-- ✅ **KISS** — Simple nodes (<30 lines), clear logic
-- ✅ **DRY** — Reused existing services (OpenSearch, Ollama, Jina)
-- ✅ **YAGNI** — Only implemented what's needed
-- ✅ **Explicit** — Type hints, docstrings, clear names
-- ✅ **2025 Best Practices** — MessagesState, ToolNode, tools_condition
+- ✅ **SOLID** - Single responsibility, dependency inversion, composition
+- ✅ **KISS** - Simple nodes (<30 lines), clear logic
+- ✅ **DRY** - Reused existing services (OpenSearch, Ollama, Jina)
+- ✅ **YAGNI** - Only implemented what's needed
+- ✅ **Explicit** - Type hints, docstrings, clear names
+- ✅ **2025 Best Practices** - MessagesState, ToolNode, tools_condition
 
 ### Documentation
 
@@ -176,17 +177,17 @@ jupyter notebook notebooks/week7/week7_agentic_rag.ipynb
 
 ---
 
-## Part 2: Telegram Bot Integration
+## 💬 Part 2: Telegram Bot Integration
 
 ### What We Built
 
-- **Full Telegram Bot Integration**: Conversational interface with command support
-- **Natural Language Queries**: Ask questions in plain language, get answers with sources
-- **All Module 6 Features**: Redis caching (150-400x speedup) and Langfuse tracing
-- **Interactive Commands**: `/start`, `/help`, `/ask`, `/search`, `/settings`, `/status`
-- **User Session Management**: Per-user preferences and conversation history
-- **Mobile-First**: Rich message formatting with clickable arXiv links
-- **Optional Access Control**: Whitelist specific users if needed
+- **🤖 Full Telegram Bot Integration**: Conversational interface with command support
+- **💬 Natural Language Queries**: Ask questions in plain language, get answers with sources
+- **⚡ All Week 6 Features**: Redis caching (150-400x speedup) and Langfuse tracing
+- **🎯 Interactive Commands**: `/start`, `/help`, `/ask`, `/search`, `/settings`, `/status`
+- **👤 User Session Management**: Per-user preferences and conversation history
+- **📱 Mobile-First**: Rich message formatting with clickable arXiv links
+- **🔐 Optional Access Control**: Whitelist specific users if needed
 
 ## Architecture
 
@@ -259,14 +260,14 @@ src/schemas/telegram/
 - **Clickable links** to arXiv papers
 - **Automatic message splitting** for long responses
 - **Source citations** with paper metadata
-- **Cache indicators** for instant responses
+- **Cache indicators** (⚡) for instant responses
 
 ## Quick Start
 
 ### Prerequisites
 
-1. **Telegram Account** — Install Telegram on your phone or computer
-2. **All Module 1-6 Services Running** — Full RAG stack must be operational
+1. **Telegram Account** - Install Telegram on your phone or computer
+2. **All Week 1-6 Services Running** - Full RAG stack must be operational
 
 ### Step 1: Create Your Telegram Bot
 
@@ -274,8 +275,8 @@ src/schemas/telegram/
 2. **Send** `/newbot` to BotFather
 3. **Follow prompts**:
    - Choose a name (e.g., "My arXiv Curator")
-   - Choose a username (e.g., "my_arxiv_curator_bot" — must end in "bot")
-4. **Copy the bot token** — You'll receive something like:
+   - Choose a username (e.g., "my_arxiv_curator_bot" - must end in "bot")
+4. **Copy the bot token** - You'll receive something like:
    ```
    1234567890:ABCdefGHIjklMNOpqrsTUVwxyz-1234567
    ```
@@ -300,12 +301,14 @@ TELEGRAM__USE_WEBHOOK=false
 ### Step 3: Install Dependencies
 
 ```bash
+# Install python-telegram-bot library
 uv sync
 ```
 
 ### Step 4: Start Services
 
 ```bash
+# Start all services (includes Telegram bot)
 docker compose up --build -d
 
 # Check logs to verify Telegram bot started
@@ -335,21 +338,21 @@ INFO - Bot commands set successfully
 **Test `/start` command:**
 ```
 You: /start
-Bot: Welcome to Falco!
+Bot: 👋 Welcome to arXiv Paper Curator!
      [Shows capabilities and quick commands]
 ```
 
 **Test `/help` command:**
 ```
 You: /help
-Bot: Falco Help
+Bot: 📚 arXiv Paper Curator Help
      [Shows detailed command documentation]
 ```
 
 **Test `/status` command:**
 ```
 You: /status
-Bot: System Status
+Bot: 🔧 System Status
      ✅ OPENSEARCH
      ✅ OLLAMA
      ✅ CACHE
@@ -365,24 +368,24 @@ Bot: [15-20s first time]
      *Answer:*
      Attention mechanisms allow models to dynamically focus on...
 
-     *Sources:*
+     📚 *Sources:*
      [1] *Attention Is All You Need*
-         Read on arXiv - 1706.03762
-         Score: 12.456
+         🔗 Read on arXiv - 1706.03762
+         📊 Score: 12.456
 
      [2] *Neural Machine Translation...*
-         Read on arXiv - 1409.0473
-         Score: 11.234
+         🔗 Read on arXiv - 1409.0473
+         📊 Score: 11.234
 
-     Mode: hybrid
+     ⚙️ Mode: hybrid
 ```
 
 **Test cached query:**
 ```
 You: What are attention mechanisms?
-Bot: [~100ms second time]
+Bot: [~100ms second time ⚡]
      [Same answer as above]
-     Mode: hybrid | Cached
+     ⚙️ Mode: hybrid ⚡ Cached
 ```
 
 #### Scenario 3: Search Command
@@ -390,15 +393,15 @@ Bot: [~100ms second time]
 **Test paper search:**
 ```
 You: /search transformer neural networks
-Bot: Found 145 papers (showing top 10)
+Bot: 📖 Found 145 papers (showing top 10)
 
      1. *Attention Is All You Need*
-        Read on arXiv - 1706.03762
-        Score: 12.456
+        🔗 Read on arXiv - 1706.03762
+        📊 Score: 12.456
 
      2. *BERT: Pre-training of Deep Bidirectional...*
-        Read on arXiv - 1810.04805
-        Score: 11.234
+        🔗 Read on arXiv - 1810.04805
+        📊 Score: 11.234
      [...]
 ```
 
@@ -407,7 +410,7 @@ Bot: Found 145 papers (showing top 10)
 **Test settings command:**
 ```
 You: /settings
-Bot: Your Settings
+Bot: ⚙️ Your Settings
 
      *Search Mode:* HYBRID
      *Results per query:* 3 papers
@@ -415,7 +418,7 @@ Bot: Your Settings
      *Categories:* All
 
      [Interactive buttons appear]:
-     [Hybrid Search] [BM25 Only]
+     [🔍 Hybrid Search] [⚡ BM25 Only]
      [3 Results] [5 Results] [10 Results]
      [All Categories] [cs.AI] [cs.LG]
 ```
@@ -440,7 +443,7 @@ You: How does it differ from GPT?
 Bot: [Answers about BERT vs GPT differences]
 
 You: /clear
-Bot: Conversation history cleared!
+Bot: 🗑️ Conversation history cleared!
      Your settings have been preserved.
 ```
 
@@ -449,31 +452,31 @@ Bot: Conversation history cleared!
 **Test invalid query:**
 ```
 You: asdfghjkl
-Bot: No relevant papers found.
+Bot: ❌ No relevant papers found.
      Try different keywords or check your category filters.
 ```
 
 **Test when services are down:**
 ```
 You: test query
-Bot: Error processing your question:
+Bot: ❌ Error processing your question:
      [User-friendly error message]
 ```
 
 ### Verification Checklist
 
-- [ ] **Bot responds to `/start`** — Shows welcome message
-- [ ] **Bot responds to all commands** — `/help`, `/ask`, `/search`, `/settings`, `/status`, `/clear`
-- [ ] **Natural language queries work** — Can ask questions without commands
-- [ ] **RAG answers include sources** — Papers cited with arXiv links
-- [ ] **Cache works** — Repeated queries return instantly
-- [ ] **Settings persist** — Changes remain across conversation
-- [ ] **Interactive buttons work** — Can click inline keyboard buttons
-- [ ] **Long responses split correctly** — Messages don't exceed Telegram limit
-- [ ] **Markdown formatting works** — Bold, italics, links render correctly
-- [ ] **Langfuse shows traces** — Check http://localhost:3000 for Telegram events
-- [ ] **Typing indicator shows** — "Bot is typing..." appears during processing
-- [ ] **Error messages are friendly** — No stack traces exposed to user
+- [ ] **Bot responds to `/start`** - Shows welcome message
+- [ ] **Bot responds to all commands** - `/help`, `/ask`, `/search`, `/settings`, `/status`, `/clear`
+- [ ] **Natural language queries work** - Can ask questions without commands
+- [ ] **RAG answers include sources** - Papers cited with arXiv links
+- [ ] **Cache works** - Repeated queries return instantly (⚡ indicator)
+- [ ] **Settings persist** - Changes remain across conversation
+- [ ] **Interactive buttons work** - Can click inline keyboard buttons
+- [ ] **Long responses split correctly** - Messages don't exceed Telegram limit
+- [ ] **Markdown formatting works** - Bold, italics, links render correctly
+- [ ] **Langfuse shows traces** - Check http://localhost:3000 for Telegram events
+- [ ] **Typing indicator shows** - "Bot is typing..." appears during processing
+- [ ] **Error messages are friendly** - No stack traces exposed to user
 
 ### Performance Testing
 
@@ -485,7 +488,7 @@ Bot: [Response in ~15-20 seconds]
 
 # Identical query (cache hit)
 You: What is machine learning?
-Bot: [Response in ~100ms]
+Bot: [Response in ~100ms ⚡]
 
 # Verify 150-400x speedup!
 ```
@@ -548,18 +551,19 @@ Settings persist across sessions and are stored in-memory (for production, consi
 
 ### Service Integration
 
-The Telegram bot integrates with all existing Module 1-6 services:
+The Telegram bot integrates with all existing Week 1-6 services:
 
-1. **OpenSearch** — Hybrid search for relevant papers
-2. **Jina Embeddings** — Semantic search capabilities
-3. **Ollama LLM** — Answer generation
-4. **Redis Cache** — 150-400x speedup for repeated queries
-5. **Langfuse** — Complete tracing of Telegram interactions
-6. **PostgreSQL** — Paper metadata (via OpenSearch)
+1. **OpenSearch** - Hybrid search for relevant papers
+2. **Jina Embeddings** - Semantic search capabilities
+3. **Ollama LLM** - Answer generation
+4. **Redis Cache** - 150-400x speedup for repeated queries
+5. **Langfuse** - Complete tracing of Telegram interactions
+6. **PostgreSQL** - Paper metadata (via OpenSearch)
 
 ### Message Flow
 
 ```python
+# Simplified message flow
 async def handle_message(update, context):
     1. Extract user_id, chat_id, text
     2. Check rate limits
@@ -649,7 +653,7 @@ docker compose logs api
 docker exec rag-redis redis-cli ping  # Should return PONG
 
 # 2. Check cache hit rate
-# Look for cache indicator in bot responses
+# Look for ⚡ indicator in bot responses
 
 # 3. Verify Langfuse tracing not blocking
 LANGFUSE__ENABLED=false  # Temporarily disable
@@ -715,16 +719,16 @@ For high-traffic deployments:
 
 ## Next Steps
 
-### Optional Enhancements
+### Optional Enhancements (Week 7.1+)
 
-- **Image Support**: Upload paper PDFs, get summaries
-- **Voice Messages**: Ask questions via voice (speech-to-text)
-- **User Analytics**: Dashboard for usage patterns
-- **Group Chat**: Multi-user discussions
-- **Multi-Language**: Internationalization support
-- **Notifications**: Push alerts for new papers in categories
-- **Personalization**: ML-based paper recommendations
-- **Semantic Cache**: Fuzzy matching for similar queries
+- **📸 Image Support**: Upload paper PDFs, get summaries
+- **🗣️ Voice Messages**: Ask questions via voice (speech-to-text)
+- **📊 User Analytics**: Dashboard for usage patterns
+- **🤝 Group Chat**: Multi-user discussions
+- **🌍 Multi-Language**: Internationalization support
+- **🔔 Notifications**: Push alerts for new papers in categories
+- **📈 Personalization**: ML-based paper recommendations
+- **🔗 Semantic Cache**: Fuzzy matching for similar queries
 
 ### Integration Ideas
 
@@ -774,7 +778,7 @@ split_long_message() -> Auto-split >4000 chars
 
 ## Success Criteria
 
-Module 7 is complete when:
+Week 7 is complete when:
 
 - ✅ Bot responds to all commands
 - ✅ Natural language queries return RAG answers
@@ -789,7 +793,7 @@ Module 7 is complete when:
 
 ---
 
-**Module 7 transforms your RAG system into a mobile-first, conversational research assistant accessible anywhere via Telegram!**
+**Week 7 transforms your RAG system into a mobile-first, conversational research assistant accessible anywhere via Telegram!** 🚀
 
 ---
 
@@ -827,4 +831,4 @@ A: Yes! Change `OLLAMA_MODEL` or use `/settings` command to select different Oll
 
 ---
 
-Enjoy your new conversational RAG interface!
+Enjoy your new conversational RAG interface! 🎉

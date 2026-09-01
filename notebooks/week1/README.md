@@ -5,7 +5,7 @@ This folder contains the materials for Module 1 of Falco, which focuses on setti
 ## Contents
 
 ### `week1_setup.ipynb`
-A comprehensive Jupyter notebook that covers:
+A comprehensive Jupyter notebook that guides students through:
 
 1. **System Requirements and Setup**
    - Understanding each technology component and its purpose
@@ -18,7 +18,7 @@ A comprehensive Jupyter notebook that covers:
    - Data persistence and volume management concepts
 
 <p align="center">
-  <img src="../../static/week1_infra_setup.png" alt="Infrastructure Setup" width="700">
+  <img src="../../static/week1_infra_setup.png" alt="Week 1 Infrastructure Setup" width="700">
 </p>
 
 **Architecture Overview:**
@@ -26,7 +26,7 @@ A comprehensive Jupyter notebook that covers:
 - **PostgreSQL 16** (Port 5432): Primary database for paper metadata and content storage
 - **OpenSearch 2.19** (Ports 9200, 5601): Hybrid search engine with management dashboards
 - **Apache Airflow 3.0** (Port 8080): Workflow orchestration with DAGs and PostgreSQL backend
-- **Ollama** (Port 11434): Local LLM server for RAG implementation
+- **Ollama** (Port 11434): Local LLM server for future RAG implementation
 - **Docker Network**: All services communicate via `rag-network` with persistent volumes
 
 3. **Service-by-Service Setup**
@@ -42,16 +42,16 @@ A comprehensive Jupyter notebook that covers:
    - Modular Ollama testing (4 focused test cells)
    - Common troubleshooting scenarios and solutions
 
-## Key Capabilities
+## Learning Objectives
 
-By completing this module, you will:
+By completing this week's materials, students will:
 
 - Understand containerization and Docker Compose orchestration
-- Set up a production-grade infrastructure stack
-- Configure database and API development environments
+- Learn how to set up a production-grade infrastructure stack
+- Gain experience with database design and API development
 - Master troubleshooting techniques for multi-service applications
-- Use direct HTTP API testing vs service abstraction layers
-- Work confidently with professional development tools
+- Learn direct HTTP API testing vs service abstraction layers
+- Build confidence working with professional development tools
 
 ## Ollama Testing (Simplified for Module 1)
 
@@ -60,7 +60,7 @@ The notebook includes modular Ollama testing broken into focused cells:
 - **Test 3A**: Check available models
 - **Test 3B**: Simple model testing (if models installed) 
 - **Test 3C**: Performance analysis
-- **Test 3D**: Setup commands and notes
+- **Test 3D**: Learning notes and setup commands
 
 ### Easy Model Installation (Optional for Module 1)
 
@@ -69,7 +69,7 @@ The notebook includes modular Ollama testing broken into focused cells:
 make ollama-pull MODEL=llama3.2:1b
 make ollama-test MODEL=llama3.2:1b
 
-# Direct HTTP calls
+# Direct HTTP calls for learning
 curl -X POST http://localhost:11434/api/pull -d '{"name":"llama3.2:1b"}'
 curl -X POST http://localhost:11434/api/generate -d '{"model":"llama3.2:1b","prompt":"Hello","stream":false}'
 ```
@@ -85,20 +85,20 @@ curl -X POST http://localhost:11434/api/generate -d '{"model":"llama3.2:1b","pro
 ## Target Audience
 
 This material is designed for:
-- **Engineers** setting up modern software infrastructure
-- **Developers** building real-world AI-powered applications
-- **Professionals** transitioning into AI engineering or DevOps
-- **Anyone** interested in building production RAG systems
+- **Beginners** who want to learn modern software infrastructure
+- **Students** looking to understand how real-world applications are built
+- **Professionals** transitioning into software development or DevOps
+- **Anyone** interested in building their own AI-powered research tools
 
 ## Time Commitment
 
 - **Setup**: 2-3 hours (including software installation and downloads)
-- **Notebook completion**: 1 hour
+- **Notebook completion**: 1 hours
 - **Total**: 2-4 hours
 
 ## 📖 Additional Resources
 
-**Blog Post:** [The Infrastructure That Powers RAG Systems](https://erfanfalco.substack.com/p/the-infrastructure-that-powers-rag)
+**Week 1 Blog Post:** [The Infrastructure That Powers RAG Systems](https://jamwithai.substack.com/p/the-infrastructure-that-powers-rag)
 - Deep dive into each infrastructure component
 - Production deployment considerations
 - Architecture decision explanations
@@ -110,10 +110,12 @@ If you encounter issues:
 2. Review the common problems and solutions
 3. Ensure all prerequisites are properly installed
 4. Follow the step-by-step verification procedures
+5. Ask in Jam With AI substack chat channel
 
 ## Next Steps
 
-After completing Module 1, you will be ready to:
+After completing Week 1, you will be ready to:
 - Understand how each service contributes to the overall system
 - Modify and extend the infrastructure as needed
-- Proceed to Module 2: arXiv Integration and PDF Processing
+- Proceed to Week 2: arXiv Integration and PDF Processing
+- Build confidence in working with professional development environments

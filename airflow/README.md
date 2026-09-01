@@ -1,9 +1,9 @@
 # Airflow Configuration
 
-This directory contains Apache Airflow configuration and DAGs for Falco.
+This directory contains Apache Airflow configuration and DAGs for the arXiv Paper Curator project.
 
 <p align="center">
-  <img src="../static/week2_data_ingestion_flow.png" alt="Data Ingestion Architecture" width="800">
+  <img src="../static/week2_data_ingestion_flow.png" alt="Week 2 Data Ingestion Architecture" width="800">
 </p>
 
 ## Current Setup
@@ -62,7 +62,7 @@ The Airflow container is configured for cross-platform deployment:
 3. **PDF Processing**: Download and parse PDFs with Docling
 4. **Failed PDF Retry**: Handle any processing failures
 5. **Database Storage**: Store complete paper data with parsed content
-6. **OpenSearch Indexing**: Index papers for search and retrieval
+6. **OpenSearch Placeholders**: Prepare for Week 3+ search indexing
 7. **Daily Report**: Generate comprehensive processing statistics
 
 ### Pipeline Performance
