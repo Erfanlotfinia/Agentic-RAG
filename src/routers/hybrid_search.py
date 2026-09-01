@@ -20,8 +20,6 @@ async def hybrid_search(
         if not await asyncio.to_thread(opensearch_client.health_check):
             raise HTTPException(status_code=503, detail="Search service is currently unavailable")
 
-        # Newest-first ordering and relevance fusion are different contracts.
-        # Explicit latest requests therefore use the BM25/date-sort path.
         effective_hybrid = request.use_hybrid and not request.latest_papers
         query_embedding = None
         if effective_hybrid:
@@ -32,7 +30,14 @@ async def hybrid_search(
                 logger.warning("Failed to generate embeddings, falling back to BM25: %s", exc)
 
         effective_hybrid = effective_hybrid and query_embedding is not None
-        logger.info("Search: %r (mode: %s)", request.query, "hybrid" if effective_hybrid else "bm25")
+        logger.info(
+            "Executing search (mode=%s, query_length=%s, size=%s, offset=%s, category_count=%s)",
+            "hybrid" if effective_hybrid else "bm25",
+            len(request.query),
+            request.size,
+            request.from_,
+            len(request.categories or []),
+        )
 
         results = await asyncio.to_thread(
             opensearch_client.search_unified,
