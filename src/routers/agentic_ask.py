@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from src.dependencies import AgenticRAGDep, LangfuseDep
+from src.exceptions import OpenSearchException
 from src.schemas.api.ask import AgenticAskResponse, AskRequest, FeedbackRequest, FeedbackResponse
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,9 @@ async def ask_agentic(
             session_id=request.session_id,
             trace_id=result.get("trace_id"),
         )
+    except OpenSearchException:
+        logger.exception("Search backend unavailable during Agentic RAG request")
+        raise HTTPException(status_code=503, detail="Search service is currently unavailable")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception:
