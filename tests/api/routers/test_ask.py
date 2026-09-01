@@ -1,7 +1,7 @@
 from contextlib import nullcontext
 
-from src.routers.ask import _prepare_chunks_and_sources
-from src.schemas.api.ask import AskRequest
+from src.routers.ask import _cache_matches_requested_mode, _prepare_chunks_and_sources
+from src.schemas.api.ask import AskRequest, AskResponse
 
 
 async def test_ask_endpoint_basic(client):
@@ -62,6 +62,29 @@ async def test_stream_endpoint_basic(client):
 async def test_stream_endpoint_validation_errors(client):
     response = await client.post("/api/v1/stream", json={"query": "", "model": "llama3.2:3b"})
     assert response.status_code == 422
+
+
+def test_hybrid_request_rejects_cached_bm25_fallback():
+    request = AskRequest(query="agentic retrieval", use_hybrid=True)
+    cached = AskResponse(
+        query=request.query,
+        answer="fallback answer",
+        sources=[],
+        chunks_used=1,
+        search_mode="bm25",
+    )
+
+    assert _cache_matches_requested_mode(request, cached) is False
+
+
+def test_cache_accepts_response_when_retrieval_mode_matches():
+    hybrid_request = AskRequest(query="hybrid", use_hybrid=True)
+    hybrid_response = AskResponse(query="hybrid", answer="answer", sources=[], chunks_used=1, search_mode="hybrid")
+    bm25_request = AskRequest(query="bm25", use_hybrid=False)
+    bm25_response = AskResponse(query="bm25", answer="answer", sources=[], chunks_used=1, search_mode="bm25")
+
+    assert _cache_matches_requested_mode(hybrid_request, hybrid_response) is True
+    assert _cache_matches_requested_mode(bm25_request, bm25_response) is True
 
 
 class _StubTracer:
