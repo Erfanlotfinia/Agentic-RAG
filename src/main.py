@@ -10,6 +10,7 @@ from src.config import get_settings
 from src.db.factory import make_database
 from src.routers import agentic_ask, hybrid_search, ping
 from src.routers.ask import ask_router, stream_router
+from src.security import enforce_api_security
 from src.services.agents.factory import make_agentic_rag_service
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.cache.factory import make_cache_client
@@ -136,6 +137,7 @@ app = FastAPI(
     version=os.getenv("APP_VERSION", "1.0.0"),
     lifespan=lifespan,
 )
+app.middleware("http")(enforce_api_security)
 
 app.include_router(ping.router, prefix="/api/v1")
 app.include_router(hybrid_search.router, prefix="/api/v1")
