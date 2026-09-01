@@ -22,14 +22,32 @@ class OpenSearchClient:
         self.settings = settings
         self.index_name = f"{settings.opensearch.index_name}-{settings.opensearch.chunk_index_suffix}"
 
-        self.client = OpenSearch(
-            hosts=[host],
-            use_ssl=False,
-            verify_certs=False,
-            ssl_show_warn=False,
-        )
+        username = settings.opensearch.username
+        password = settings.opensearch.password
+        if bool(username) != bool(password):
+            raise ValueError("OpenSearch username and password must be configured together")
 
-        logger.info(f"OpenSearch client initialized with host: {host}")
+        use_ssl = settings.opensearch.use_ssl or host.lower().startswith("https://")
+        client_options = {
+            "hosts": [host],
+            "use_ssl": use_ssl,
+            "verify_certs": settings.opensearch.verify_certs if use_ssl else False,
+            "ssl_show_warn": False,
+        }
+        if username and password:
+            client_options["http_auth"] = (username, password)
+        if settings.opensearch.ca_certs:
+            client_options["ca_certs"] = settings.opensearch.ca_certs
+
+        self.client = OpenSearch(**client_options)
+
+        logger.info(
+            "OpenSearch client initialized with host=%s ssl=%s certificate_verification=%s authentication=%s",
+            host,
+            use_ssl,
+            client_options["verify_certs"],
+            bool(username),
+        )
 
     def close(self) -> None:
         """Close the underlying OpenSearch transport."""
