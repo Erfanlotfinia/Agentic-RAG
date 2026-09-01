@@ -26,6 +26,7 @@ def test_service(mock_opensearch_client, mock_ollama_client, mock_jina_embedding
         ollama_client=mock_ollama_client,
         embeddings_client=mock_jina_embeddings_client,
         langfuse_tracer=None,
+        cache_client=None,
         graph_config=config,
     )
 
@@ -52,7 +53,6 @@ class TestAgenticRAGServiceInitialization:
         assert test_service.ollama is not None
         assert test_service.embeddings is not None
         assert test_service.graph is not None
-        assert test_service.checkpointer is not None
 
     def test_graph_config_values(self, test_service):
         assert test_service.graph_config.model == "llama3.2:1b"
@@ -137,6 +137,33 @@ class TestAgenticRAGAskMethod:
         assert result["sources"] == ["https://arxiv.org/pdf/1706.03762.pdf"]
         assert result["chunks_used"] == 1
         assert result["search_mode"] == "bm25"
+
+    @pytest.mark.asyncio
+    async def test_session_history_is_loaded_and_stored(self, test_service):
+        cache = Mock()
+        cache.get_conversation_history = AsyncMock(
+            return_value=[
+                {"role": "user", "content": "What is attention?"},
+                {"role": "assistant", "content": "Attention weights relevant tokens."},
+            ]
+        )
+        cache.store_conversation_turn = AsyncMock(return_value=True)
+        test_service.cache_client = cache
+        test_service.graph.ainvoke = AsyncMock(return_value=_final_state("And transformers?"))
+
+        await test_service.ask(query="And transformers?", session_id="shared-session")
+
+        state_input = test_service.graph.ainvoke.call_args.args[0]
+        assert [message.content for message in state_input["messages"]] == [
+            "What is attention?",
+            "Attention weights relevant tokens.",
+            "And transformers?",
+        ]
+        cache.store_conversation_turn.assert_awaited_once_with(
+            session_id="shared-session",
+            user_message="And transformers?",
+            assistant_message="Test answer",
+        )
 
 
 class TestAgenticRAGGraphVisualization:
