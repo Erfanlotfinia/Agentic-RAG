@@ -1,5 +1,21 @@
 # Falco — Agentic RAG for Academic Research
 
+<div align="center">
+  <p><strong>End-to-end academic RAG with hybrid retrieval, local LLMs, observability, and an adaptive LangGraph workflow.</strong></p>
+
+  <img src="https://img.shields.io/badge/Python-3.12+-blue.svg" alt="Python Version">
+  <img src="https://img.shields.io/badge/FastAPI-0.115+-green.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/OpenSearch-2.19-orange.svg" alt="OpenSearch">
+  <img src="https://img.shields.io/badge/LangGraph-Agentic_RAG-purple.svg" alt="LangGraph">
+  <img src="https://img.shields.io/badge/Docker-Compose-blue.svg" alt="Docker Compose">
+</div>
+
+<br>
+
+<p align="center">
+  <img src="static/mother_of_ai_project_rag_architecture.gif" alt="Falco RAG Architecture" width="760">
+</p>
+
 Falco is an end-to-end Retrieval-Augmented Generation system for academic research. It ingests arXiv papers, parses and stores source documents, builds a chunk-level hybrid search index, and serves search, conventional RAG, streaming RAG, and adaptive Agentic RAG APIs.
 
 The runtime is intentionally split into two paths:
@@ -61,6 +77,14 @@ PostgreSQL is the canonical paper store. OpenSearch is the retrieval/read model.
                       Response
 ```
 
+### Agentic RAG + Telegram visual overview
+
+<p align="center">
+  <img src="static/week7_telegram_and_agentic_ai.png" alt="Agentic RAG and Telegram Architecture" width="900">
+</p>
+
+> The image above comes from the project's incremental Week 7 implementation. The current runtime keeps the same core Agentic RAG idea while sharing the application-scoped Agentic service and Redis-backed session history between the HTTP API and Telegram.
+
 ## Agentic RAG workflow
 
 The Agentic path is a **single adaptive LangGraph workflow**, not a multi-agent system:
@@ -92,9 +116,15 @@ Grade Documents
           └────────────► Retrieve
 ```
 
+<p align="center">
+  <img src="static/langgraph-mermaid.png" alt="LangGraph Agentic RAG Workflow" width="850">
+</p>
+
 The graph validates query scope, retrieves paper chunks, grades the retrieved context, rewrites weak queries, retries retrieval up to a bounded limit, and generates the final answer.
 
 The Agentic API accepts the actual request-level retrieval options (`model`, `top_k`, hybrid/BM25 mode and categories) and applies them to the graph instead of only echoing them in the response.
+
+**Deep dive:** [Agentic RAG with LangGraph and Telegram](https://erfanfalco.substack.com/p/agentic-rag-with-langgraph-and-telegram)
 
 ## Main components
 
@@ -349,6 +379,15 @@ User feedback can be attached to the returned trace ID through `/api/v1/feedback
 
 ## Local services
 
+### Prerequisites
+
+- Docker Desktop / Docker Compose
+- Python 3.12
+- [uv package manager — installation guide](https://docs.astral.sh/uv/getting-started/installation/)
+- A Jina API key for hybrid/vector retrieval
+- Optional Langfuse credentials for tracing
+- Optional Telegram bot token for the mobile interface
+
 ```bash
 cp .env.example .env
 uv sync
@@ -395,7 +434,7 @@ TELEGRAM__ENABLED=true
 
 Variables such as `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY` and the MinIO/Redis server credentials are separate variables consumed by the self-hosted Langfuse Docker services and intentionally use their server-specific names.
 
-See `.env.example` and `src/config.py` for the authoritative settings surface.
+See [.env.example](.env.example) and [`src/config.py`](src/config.py) for the authoritative settings surface.
 
 ## Development
 
@@ -421,10 +460,113 @@ The project targets Python `>=3.12,<3.13` and uses Ruff, MyPy, Pytest and pre-co
 7. **Worker-safe session state:** Agentic chat history is persisted in Redis instead of process-local memory.
 8. **Observable execution:** Langfuse captures major graph and RAG decisions.
 
+## Visual learning path
+
+The repository was built incrementally. These diagrams and notebooks are useful for understanding how the architecture evolved. They are **learning snapshots**, while the runtime sections above describe the current `main` behavior.
+
+### Module 1 — Infrastructure foundation
+
+<p align="center">
+  <img src="static/week1_infra_setup.png" alt="Infrastructure Setup" width="820">
+</p>
+
+- Notebook: [`notebooks/week1/week1_setup.ipynb`](notebooks/week1/week1_setup.ipynb)
+- Module notes: [`notebooks/week1/README.md`](notebooks/week1/README.md)
+- Blog: [The Infrastructure That Powers RAG Systems](https://erfanfalco.substack.com/p/the-infrastructure-that-powers-rag)
+
+### Module 2 — arXiv ingestion and PDF parsing
+
+<p align="center">
+  <img src="static/week2_data_ingestion_flow.png" alt="Data Ingestion Architecture" width="820">
+</p>
+
+- Notebook: [`notebooks/week2/week2_arxiv_integration.ipynb`](notebooks/week2/week2_arxiv_integration.ipynb)
+- Module notes: [`notebooks/week2/README.md`](notebooks/week2/README.md)
+- Blog: [Building Data Ingestion Pipelines for RAG](https://erfanfalco.substack.com/p/bringing-your-rag-system-to-life)
+
+### Module 3 — OpenSearch and BM25
+
+<p align="center">
+  <img src="static/week3_opensearch_flow.png" alt="OpenSearch and BM25 Architecture" width="820">
+</p>
+
+- Notebook: [`notebooks/week3/week3_opensearch.ipynb`](notebooks/week3/week3_opensearch.ipynb)
+- Module notes: [`notebooks/week3/README.md`](notebooks/week3/README.md)
+- Blog: [The Search Foundation Every RAG System Needs](https://erfanfalco.substack.com/p/the-search-foundation-every-rag-system)
+
+### Module 4 — Chunking and hybrid retrieval
+
+<p align="center">
+  <img src="static/week4_hybrid_opensearch.png" alt="Hybrid Search Architecture" width="820">
+</p>
+
+- Notebook: [`notebooks/week4/week4_hybrid_search.ipynb`](notebooks/week4/week4_hybrid_search.ipynb)
+- Module notes: [`notebooks/week4/README.md`](notebooks/week4/README.md)
+- Blog: [The Chunking Strategy That Makes Hybrid Search Work](https://erfanfalco.substack.com/p/chunking-strategies-and-hybrid-rag)
+
+### Module 5 — Complete RAG pipeline
+
+<p align="center">
+  <img src="static/week5_complete_rag.png" alt="Complete RAG System Architecture" width="880">
+</p>
+
+- Notebook: [`notebooks/week5/week5_complete_rag_system.ipynb`](notebooks/week5/week5_complete_rag_system.ipynb)
+- Module notes: [`notebooks/week5/README.md`](notebooks/week5/README.md)
+- Blog: [The Complete RAG System](https://erfanfalco.substack.com/p/the-complete-rag-system)
+
+### Module 6 — Monitoring and caching
+
+<p align="center">
+  <img src="static/week6_monitoring_and_caching.png" alt="Monitoring and Caching Architecture" width="880">
+</p>
+
+- Notebook: [`notebooks/week6/week6_cache_testing.ipynb`](notebooks/week6/week6_cache_testing.ipynb)
+- Module notes: [`notebooks/week6/README.md`](notebooks/week6/README.md)
+- Blog: [Production-ready RAG: Monitoring & Caching](https://erfanfalco.substack.com/p/production-ready-rag-monitoring-and)
+
+### Module 7 — Agentic RAG and Telegram
+
+<p align="center">
+  <img src="static/week7_telegram_and_agentic_ai.png" alt="Agentic RAG and Telegram Architecture" width="880">
+</p>
+
+- Notebook: [`notebooks/week7/week7_agentic_rag.ipynb`](notebooks/week7/week7_agentic_rag.ipynb)
+- Module notes: [`notebooks/week7/README.md`](notebooks/week7/README.md)
+- Blog: [Agentic RAG with LangGraph and Telegram](https://erfanfalco.substack.com/p/agentic-rag-with-langgraph-and-telegram)
+
+## Useful links
+
+### Project learning resources
+
+- [Project overview](https://erfanfalco.substack.com/p/falco-project-overview)
+- [`notebooks/`](notebooks/) — incremental implementation guides and experiments
+- [`airflow/README.md`](airflow/README.md) — Airflow-specific setup and workflow notes
+- [`static/`](static/) — architecture diagrams used throughout this README
+- [Interactive API docs](http://localhost:8000/docs) — available after starting the API locally
+
+### Technology documentation
+
+- [FastAPI documentation](https://fastapi.tiangolo.com/)
+- [OpenSearch documentation](https://docs.opensearch.org/)
+- [Apache Airflow documentation](https://airflow.apache.org/docs/)
+- [Docling documentation](https://docling-project.github.io/docling/)
+- [Jina AI embeddings documentation](https://jina.ai/embeddings/)
+- [Ollama documentation](https://docs.ollama.com/)
+- [LangGraph documentation](https://docs.langchain.com/oss/python/langgraph/overview)
+- [Langfuse documentation](https://langfuse.com/docs)
+- [Redis documentation](https://redis.io/docs/)
+- [uv documentation](https://docs.astral.sh/uv/)
+
 ## Incremental notebooks
 
 `notebooks/` documents the project's incremental development history. For current runtime behavior, treat `src/`, `airflow/dags/`, `.env.example`, `uv.lock` and `compose.yml` as authoritative.
 
+## Author
+
+**Erfan Lotfinia**
+
+- GitHub: [@Erfanlotfinia](https://github.com/Erfanlotfinia)
+
 ## License
 
-See the repository license for usage terms.
+See [`LICENSE`](LICENSE) for usage terms.
