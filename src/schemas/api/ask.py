@@ -11,6 +11,12 @@ class AskRequest(BaseModel):
     use_hybrid: bool = Field(True, description="Use hybrid search (BM25 + vector)")
     model: str = Field("llama3.2:1b", description="Ollama model to use for generation")
     categories: Optional[List[str]] = Field(None, description="Filter by arXiv categories")
+    session_id: Optional[str] = Field(
+        None,
+        description="Optional conversation identifier used by Agentic RAG to keep thread state across requests",
+        min_length=1,
+        max_length=128,
+    )
 
     class Config:
         json_schema_extra = {
@@ -20,6 +26,7 @@ class AskRequest(BaseModel):
                 "use_hybrid": True,
                 "model": "llama3.2:1b",
                 "categories": ["cs.AI", "cs.LG"],
+                "session_id": "research-session-1",
             }
         }
 
@@ -61,9 +68,10 @@ class AgenticAskResponse(AskResponse):
                 "chunks_used": 3,
                 "search_mode": "hybrid",
                 "reasoning_steps": [
-                    "Decided to retrieve relevant papers",
-                    "Retrieved documents from database",
-                    "Generated answer from relevant documents",
+                    "Validated query scope (score: 95/100)",
+                    "Retrieved documents (1 attempt(s))",
+                    "Graded documents (1 relevant)",
+                    "Generated answer from context",
                 ],
                 "retrieval_attempts": 1,
                 "trace_id": "abc123-def456-ghi789",
