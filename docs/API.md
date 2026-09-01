@@ -6,7 +6,8 @@ Falco Agentic RAG exposes its HTTP API through FastAPI. The default local base U
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/v1/health` | Platform and dependency health |
+| GET | `/api/v1/health` | Diagnostic platform/dependency health; remains HTTP 200 for degraded status reporting |
+| GET | `/api/v1/ready` | Readiness probe; returns HTTP 503 when required RAG dependencies are degraded |
 | POST | `/api/v1/hybrid-search/` | BM25 or hybrid retrieval |
 | POST | `/api/v1/ask` | Conventional grounded RAG |
 | POST | `/api/v1/stream` | Streaming conventional RAG |
@@ -32,13 +33,13 @@ curl -X POST http://localhost:8000/api/v1/ask-agentic \
 
 The request controls the actual graph configuration. `top_k`, `use_hybrid`, `model`, and `categories` are not response-only metadata.
 
-`session_id` is optional. When provided, recent conversation turns are loaded from Redis and the new turn is persisted for later requests. Without it, the request is isolated.
+`session_id` is optional. When provided, recent conversation turns are loaded from Redis and the new turn is persisted for later requests. The same client-provided session ID is returned in the response. Without a supplied session ID, the request is isolated and the response does not expose Falco's internal execution/thread identifier.
 
-The response includes the final answer plus retrieval metadata such as source PDF URLs, chunks used, effective search mode, retrieval attempts, and a Langfuse trace ID when tracing is enabled.
+The response includes the final answer plus retrieval metadata such as source PDF URLs, chunks used, effective search mode, retrieval attempts, the latest rewritten query when applicable, and a Langfuse trace ID when tracing is enabled.
 
 ## Conventional RAG
 
-`POST /api/v1/ask` executes a direct retrieval-and-generation flow. Exact responses may be served from Redis when the query and retrieval configuration match a cached request.
+`POST /api/v1/ask` executes a direct retrieval-and-generation flow. Exact responses may be served from Redis when the query, generation configuration, and requested retrieval mode match a cached response.
 
 The cache key includes:
 
@@ -48,21 +49,35 @@ The cache key includes:
 - hybrid/BM25 mode;
 - categories.
 
+If a hybrid request temporarily falls back to BM25 because query embeddings are unavailable, Falco reports the effective BM25 mode and does not treat that degraded result as a reusable hybrid cache entry.
+
 ## Streaming RAG
 
-`POST /api/v1/stream` returns server-sent response lines containing metadata, answer chunks, and a completion event. The included Falco Research Console consumes this endpoint.
+`POST /api/v1/stream` returns server-sent response lines containing metadata, answer chunks, and a completion event. The included Falco Research Console consumes this endpoint. Streaming responses use the same effective retrieval-mode and cache semantics as conventional RAG.
 
 ## Search
 
-`POST /api/v1/hybrid-search/` supports BM25 and hybrid retrieval. Hybrid retrieval uses Jina query embeddings and OpenSearch rank fusion. If query embedding fails, retrieval falls back to BM25.
+`POST /api/v1/hybrid-search/` supports BM25 and native OpenSearch hybrid retrieval. Hybrid retrieval uses Jina query embeddings and OpenSearch rank fusion. If query embedding fails, retrieval falls back to BM25 and reports `search_mode="bm25"`.
 
-## Health
+`latest_papers=true` intentionally selects date-sorted BM25 rather than relevance fusion. Pagination uses the request `from`/`size` values, and category filters apply across hybrid retrieval.
+
+## Health and readiness
+
+Diagnostic health:
 
 ```bash
 curl http://localhost:8000/api/v1/health
 ```
 
-The health response reports the Falco service version, environment, service name, and dependency status for PostgreSQL, OpenSearch, and Ollama.
+The health response reports the Falco service version, environment, service name, and dependency status for PostgreSQL, OpenSearch, and Ollama. A degraded dependency is represented in the response body while the endpoint remains available for diagnostics.
+
+Readiness:
+
+```bash
+curl -f http://localhost:8000/api/v1/ready
+```
+
+The readiness endpoint returns HTTP 503 until the dependencies required for core RAG serving are healthy. Use this endpoint for orchestrator/load-balancer readiness decisions.
 
 ## Feedback
 
@@ -72,4 +87,4 @@ If tracing is disabled, feedback submission returns an unavailable response rath
 
 ## Error handling
 
-Validation failures are returned as client errors. Agent execution failures are returned as server errors. Integrations should treat OpenSearch/Ollama availability as required for full RAG behavior and embeddings/Langfuse/Telegram as configuration-dependent capabilities.
+Validation failures are returned as client errors. Unexpected internal failures are logged server-side and returned to clients as generic server errors rather than exposing raw dependency exception text. Integrations should treat OpenSearch/Ollama availability as required for full RAG behavior and embeddings/Langfuse/Telegram as configuration-dependent capabilities.
