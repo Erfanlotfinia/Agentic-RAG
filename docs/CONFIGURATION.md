@@ -87,6 +87,20 @@ TELEGRAM__ENABLED=true
 TELEGRAM__BOT_TOKEN=...
 ```
 
+## Airflow
+
+Airflow 2.10.3 uses the standard webserver health endpoint at `http://localhost:8080/health`. The reference container creates the configured administrator account during startup from explicit environment variables:
+
+```text
+AIRFLOW_ADMIN_USERNAME=admin
+AIRFLOW_ADMIN_FIRSTNAME=Falco
+AIRFLOW_ADMIN_LASTNAME=Admin
+AIRFLOW_ADMIN_EMAIL=admin@example.com
+AIRFLOW_ADMIN_PASSWORD=change-me-strong-airflow-admin-password
+```
+
+The entrypoint refuses to start when these variables are missing. Replace the example password before starting any non-disposable deployment and restrict the Airflow UI to authorized operators.
+
 ## Secrets
 
 The example environment file contains placeholders only. Generate unique values for all deployment secrets and never commit `.env`.
