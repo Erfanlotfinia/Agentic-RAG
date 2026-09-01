@@ -18,6 +18,13 @@ class HybridIndexingService:
         self.opensearch_client = opensearch_client
         logger.info("Hybrid indexing service initialized")
 
+    async def close(self) -> None:
+        """Close network clients owned by this indexing service."""
+        try:
+            await self.embeddings_client.close()
+        finally:
+            self.opensearch_client.close()
+
     @staticmethod
     def _document_id(arxiv_id: str, chunk_index: int) -> str:
         """Build a stable OpenSearch document ID for idempotent paper indexing."""
@@ -103,12 +110,12 @@ class HybridIndexingService:
                 failed,
             )
 
-            if failed == 0 and results["success"] == len(chunks) and replace_existing:
-                self.opensearch_client.delete_stale_paper_chunks(arxiv_id, document_ids)
-
             errors = failed
             if results["success"] != len(chunks):
                 errors = max(errors, 1)
+
+            if errors == 0 and replace_existing:
+                self.opensearch_client.delete_stale_paper_chunks(arxiv_id, document_ids)
 
             return {
                 "chunks_created": len(chunks),
