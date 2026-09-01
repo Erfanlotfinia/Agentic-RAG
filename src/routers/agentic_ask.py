@@ -30,6 +30,8 @@ async def ask_agentic(
             search_mode=result.get("search_mode", "hybrid" if request.use_hybrid else "bm25"),
             reasoning_steps=result.get("reasoning_steps", []),
             retrieval_attempts=result.get("retrieval_attempts", 0),
+            rewritten_query=result.get("rewritten_query"),
+            session_id=result.get("session_id", request.session_id),
             trace_id=result.get("trace_id"),
         )
     except ValueError as exc:
