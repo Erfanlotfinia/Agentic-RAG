@@ -61,7 +61,12 @@ async def lifespan(app: FastAPI):
     app.state.embeddings_service = make_embeddings_service()
     app.state.ollama_client = make_ollama_client()
     app.state.langfuse_tracer = make_langfuse_tracer()
-    app.state.cache_client = make_cache_client(settings)
+
+    try:
+        app.state.cache_client = make_cache_client(settings)
+    except Exception as exc:
+        app.state.cache_client = None
+        logger.warning("Redis unavailable - response caching and Agentic session persistence are disabled: %s", exc)
 
     app.state.agentic_rag_service = make_agentic_rag_service(
         opensearch_client=app.state.opensearch_client,
