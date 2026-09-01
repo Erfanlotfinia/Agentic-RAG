@@ -53,10 +53,12 @@ class AskResponse(BaseModel):
 
 
 class AgenticAskResponse(AskResponse):
-    """Response model for agentic RAG question answering."""
+    """Response model for Agentic RAG question answering."""
 
-    reasoning_steps: List[str] = Field(..., description="Agent's decision-making steps")
+    reasoning_steps: List[str] = Field(..., description="Compact execution summary")
     retrieval_attempts: int = Field(..., description="Number of document retrieval attempts")
+    rewritten_query: Optional[str] = Field(None, description="Latest rewritten retrieval query, when query rewriting occurred")
+    session_id: Optional[str] = Field(None, description="Conversation session identifier used for this Agentic request")
     trace_id: Optional[str] = Field(None, description="Langfuse trace ID for feedback and debugging")
 
     class Config:
@@ -74,6 +76,8 @@ class AgenticAskResponse(AskResponse):
                     "Generated answer from context",
                 ],
                 "retrieval_attempts": 1,
+                "rewritten_query": None,
+                "session_id": "research-session-1",
                 "trace_id": "abc123-def456-ghi789",
             }
         }
