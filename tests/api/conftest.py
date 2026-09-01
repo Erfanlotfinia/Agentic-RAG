@@ -44,6 +44,8 @@ async def client():
     mock_embeddings.close = AsyncMock()
 
     mock_ollama = MagicMock()
+    mock_ollama.health_check = AsyncMock(return_value={"status": "healthy", "message": "Available"})
+    mock_ollama.list_models = AsyncMock(return_value=[{"name": "llama3.2:1b", "model": "llama3.2:1b"}])
     mock_ollama.generate_rag_answer = AsyncMock(return_value={"answer": "Test answer"})
 
     mock_agentic = MagicMock()
@@ -65,9 +67,6 @@ async def client():
     settings = Settings()
     disabled_langfuse = LangfuseTracer(settings)
 
-    health_ollama = MagicMock()
-    health_ollama.health_check = AsyncMock(return_value={"status": "healthy", "message": "Available"})
-
     with (
         patch("src.main.make_database", return_value=mock_database),
         patch("src.main.make_opensearch_client", return_value=mock_opensearch),
@@ -79,7 +78,6 @@ async def client():
         patch("src.main.make_cache_client", return_value=None),
         patch("src.main.make_agentic_rag_service", return_value=mock_agentic),
         patch("src.main.make_telegram_service", return_value=None),
-        patch("src.routers.ping.OllamaClient", return_value=health_ollama),
     ):
         async with LifespanManager(app) as manager:
             async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as http_client:
