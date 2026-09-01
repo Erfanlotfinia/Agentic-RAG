@@ -1,4 +1,4 @@
-.PHONY: help start stop restart status logs health setup format lint test test-cov clean
+.PHONY: help start stop restart status logs health setup lock-check format lint test test-cov ci clean
 
 help: ## Show Falco development commands
 	@echo "Falco Agentic RAG commands:"
@@ -19,21 +19,25 @@ status: ## Show service status
 logs: ## Follow service logs
 	docker compose logs -f
 
-health: ## Check core service health
-	@echo "Checking Falco service health..."
-	@curl -s http://localhost:8000/api/v1/health | jq . || echo "Falco API not responding"
-	@curl -s http://localhost:9200/_cluster/health | jq . || echo "OpenSearch not responding"
-	@curl -s http://localhost:8080/health | jq . || echo "Airflow not responding"
-	@curl -s http://localhost:11434/api/version | jq . || echo "Ollama not responding"
+health: ## Fail unless the reference stack is ready
+	@set -e; \
+		echo "Checking Falco reference stack..."; \
+		curl -fsS http://localhost:8000/api/v1/ready >/dev/null; echo "  Falco API: ready"; \
+		curl -fsS http://localhost:9200/_cluster/health >/dev/null; echo "  OpenSearch: healthy"; \
+		curl -fsS http://localhost:8080/health >/dev/null; echo "  Airflow: healthy"; \
+		curl -fsS http://localhost:11434/api/version >/dev/null; echo "  Ollama: healthy"
 
-setup: ## Install Python dependencies
+setup: ## Install/update the local development environment
 	uv sync
+
+lock-check: ## Verify uv.lock matches pyproject.toml without modifying it
+	uv lock --check
 
 format: ## Format code
 	uv run ruff format
 
-lint: ## Lint and type check
-	uv run ruff check --fix
+lint: ## Lint and type check without modifying source
+	uv run ruff check .
 	uv run mypy src/
 
 test: ## Run tests
@@ -41,6 +45,8 @@ test: ## Run tests
 
 test-cov: ## Run tests with coverage
 	uv run pytest --cov=src --cov-report=html
+
+ci: lock-check lint test ## Run local release-quality checks
 
 clean: ## Remove local containers and persistent volumes
 	docker compose down -v
