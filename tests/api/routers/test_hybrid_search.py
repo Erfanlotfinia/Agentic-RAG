@@ -89,16 +89,17 @@ async def test_search_endpoint_all_parameters(client):
 
 
 class _SearchStub:
-    def __init__(self, hits=None):
+    def __init__(self, hits=None, total=None):
         self.kwargs = None
         self._hits = hits or []
+        self._total = len(self._hits) if total is None else total
 
     def health_check(self):
         return True
 
     def search_unified(self, **kwargs):
         self.kwargs = kwargs
-        return {"total": len(self._hits), "hits": self._hits}
+        return {"total": self._total, "hits": self._hits}
 
 
 class _EmbeddingStub:
@@ -138,8 +139,8 @@ async def test_latest_request_forces_date_sorted_bm25_path():
     assert response.search_mode == "bm25"
 
 
-async def test_hybrid_pagination_fetches_ranked_prefix_then_slices_page():
-    search = _SearchStub([_hit(i) for i in range(15)])
+async def test_hybrid_pagination_is_forwarded_to_opensearch():
+    search = _SearchStub([_hit(i) for i in range(10, 15)], total=42)
     embeddings = _EmbeddingStub()
     request = HybridSearchRequest(query="paged retrieval", use_hybrid=True, size=5, **{"from": 10})
 
@@ -147,7 +148,8 @@ async def test_hybrid_pagination_fetches_ranked_prefix_then_slices_page():
 
     assert embeddings.calls == 1
     assert search.kwargs["use_hybrid"] is True
-    assert search.kwargs["from_"] == 0
-    assert search.kwargs["size"] == 15
+    assert search.kwargs["from_"] == 10
+    assert search.kwargs["size"] == 5
     assert response.search_mode == "hybrid"
+    assert response.total == 42
     assert [hit.arxiv_id for hit in response.hits] == [f"2501.{i:05d}" for i in range(10, 15)]
