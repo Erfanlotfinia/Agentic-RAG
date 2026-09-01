@@ -1,12 +1,27 @@
 services:
+  migrate:
+    build: .
+    container_name: falco-migrate
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:${POSTGRES_PASSWORD}@postgres:5432/rag_db
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - falco-network
+
   api:
     build: .
     container_name: falco-api
     ports:
       - "${FALCO_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       opensearch:
         condition: service_healthy
     healthcheck:
@@ -82,7 +97,8 @@ services:
       - OPENSEARCH_HOSTS=http://opensearch:9200
       - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
     depends_on:
-      - opensearch
+      opensearch:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
       interval: 30s
@@ -100,13 +116,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
       - AIRFLOW_HOME=/opt/airflow
       - PYTHONPATH=/opt/airflow/src
       - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:${POSTGRES_PASSWORD}@postgres:5432/rag_db
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://rag_user:${POSTGRES_PASSWORD}@postgres:5432/rag_db
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow_user:${AIRFLOW_POSTGRES_PASSWORD}@postgres:5432/airflow_db
       - OPENSEARCH_HOST=http://opensearch:9200
       - OPENSEARCH__HOST=http://opensearch:9200
       - OLLAMA_HOST=http://ollama:11434
@@ -115,7 +133,7 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - airflow_logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
-      - ./src:/opt/airflow/src
+      - ./src:/opt/airflow/src:ro
     ports:
       - "${FALCO_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     healthcheck:
@@ -150,12 +168,14 @@ services:
       - POSTGRES_DB=rag_db
       - POSTGRES_USER=rag_user
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AIRFLOW_POSTGRES_PASSWORD=${AIRFLOW_POSTGRES_PASSWORD}
       - POSTGRES_HOST_AUTH_METHOD=password
       - PGDATA=/var/lib/postgresql/data/pgdata
     ports:
       - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_db"]
       interval: 5s
