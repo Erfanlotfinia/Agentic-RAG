@@ -36,7 +36,7 @@ def create_retriever_tool(
     @tool
     async def retrieve_papers(query: str) -> str:
         """Search and return relevant arXiv research paper chunks with source metadata."""
-        logger.info("Retrieving papers for query: %s", query[:100])
+        logger.info("Retrieving papers (query_length=%s, top_k=%s)", len(query), top_k)
 
         query_embedding = None
         effective_hybrid = use_hybrid
