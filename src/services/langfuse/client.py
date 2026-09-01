@@ -47,8 +47,6 @@ class LangfuseTracer:
         try:
             from langfuse.langchain import CallbackHandler
 
-            # In the v3 SDK, trace attributes are propagated by the enclosing
-            # root span/trace context. Keep handler construction minimal.
             return CallbackHandler()
         except Exception as exc:
             logger.error("Error creating CallbackHandler: %s", exc)
@@ -101,19 +99,22 @@ class LangfuseTracer:
             return
 
         try:
-            with self.client.start_as_current_span(name="rag_request") as span:
-                span.update(input={"query": query}, metadata=metadata or {})
-                self.update_current_trace(
-                    user_id=user_id,
-                    session_id=session_id,
-                    metadata=metadata,
-                    input_data={"query": query},
-                    name="rag_request",
-                )
-                yield span
+            root_context = self.client.start_as_current_span(name="rag_request")
         except Exception as exc:
             logger.error("Error creating RAG request trace: %s", exc)
             yield None
+            return
+
+        with root_context as span:
+            span.update(input={"query": query}, metadata=metadata or {})
+            self.update_current_trace(
+                user_id=user_id,
+                session_id=session_id,
+                metadata=metadata,
+                input_data={"query": query},
+                name="rag_request",
+            )
+            yield span
 
     @contextmanager
     def trace_langgraph_agent(
@@ -229,7 +230,6 @@ class LangfuseTracer:
             yield None
             return
 
-        generation = None
         try:
             generation = self.client.start_generation(
                 name=name,
@@ -237,16 +237,18 @@ class LangfuseTracer:
                 input=input_data,
                 metadata=metadata or {},
             )
-            yield generation
         except Exception as exc:
             logger.error("Error creating generation span: %s", exc)
             yield None
+            return
+
+        try:
+            yield generation
         finally:
-            if generation:
-                try:
-                    generation.end()
-                except Exception:
-                    logger.debug("Generation already ended", exc_info=True)
+            try:
+                generation.end()
+            except Exception:
+                logger.debug("Generation already ended", exc_info=True)
 
     @contextmanager
     def start_span(
@@ -259,19 +261,20 @@ class LangfuseTracer:
             yield None
             return
 
-        span = None
         try:
             span = self.client.start_span(name=name, input=input_data, metadata=metadata or {})
-            yield span
         except Exception as exc:
             logger.error("Error creating span: %s", exc)
             yield None
+            return
+
+        try:
+            yield span
         finally:
-            if span:
-                try:
-                    span.end()
-                except Exception:
-                    logger.debug("Span already ended", exc_info=True)
+            try:
+                span.end()
+            except Exception:
+                logger.debug("Span already ended", exc_info=True)
 
     def update_generation(
         self,
