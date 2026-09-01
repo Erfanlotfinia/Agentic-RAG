@@ -159,11 +159,13 @@ class AgenticRAGService:
         async def _execute_with_trace():
             if trace is not None:
                 with trace as trace_obj:
-                    trace_obj.update(
-                        input={"query": query},
-                        metadata=metadata,
+                    trace_obj.update(input={"query": query}, metadata=metadata)
+                    self.langfuse_tracer.update_current_trace(
                         user_id=user_id,
                         session_id=resolved_session_id,
+                        metadata=metadata,
+                        input_data={"query": query},
+                        name="agentic_rag_request",
                     )
                     return await self._run_workflow(
                         graph=graph,
@@ -295,6 +297,7 @@ class AgenticRAGService:
                         "execution_time": execution_time,
                     }
                 )
+                self.langfuse_tracer.update_current_trace(output={"answer": answer})
                 self.langfuse_tracer.flush()
 
             return {
