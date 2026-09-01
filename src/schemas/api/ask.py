@@ -1,6 +1,8 @@
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, Field
+
+Category = Annotated[str, Field(min_length=1, max_length=32)]
 
 
 class AskRequest(BaseModel):
@@ -9,8 +11,12 @@ class AskRequest(BaseModel):
     query: str = Field(..., description="User's question", min_length=1, max_length=1000)
     top_k: int = Field(3, description="Number of top chunks to retrieve", ge=1, le=10)
     use_hybrid: bool = Field(True, description="Use hybrid search (BM25 + vector)")
-    model: str = Field("llama3.2:1b", description="Ollama model to use for generation")
-    categories: Optional[List[str]] = Field(None, description="Filter by arXiv categories")
+    model: str = Field("llama3.2:1b", description="Ollama model to use for generation", min_length=1, max_length=128)
+    categories: Optional[List[Category]] = Field(
+        None,
+        description="Filter by arXiv categories",
+        max_length=20,
+    )
     session_id: Optional[str] = Field(
         None,
         description="Optional conversation identifier used by Agentic RAG to keep thread state across requests",
@@ -86,7 +92,7 @@ class AgenticAskResponse(AskResponse):
 class FeedbackRequest(BaseModel):
     """Request model for user feedback on RAG answers."""
 
-    trace_id: str = Field(..., description="Langfuse trace ID from the response")
+    trace_id: str = Field(..., description="Langfuse trace ID from the response", min_length=1, max_length=256)
     score: float = Field(..., description="Feedback score (0-1 or -1 to 1)", ge=-1, le=1)
     comment: Optional[str] = Field(None, description="Optional feedback comment", max_length=1000)
 
