@@ -26,11 +26,12 @@ from src.services.telegram.bot import TelegramBot
 
 @lru_cache
 def get_settings() -> Settings:
-    """Get application settings."""
+    """Construct settings for compatibility with non-request callers."""
     return Settings()
 
 
 def get_request_settings(request: Request) -> Settings:
+    """Return the same immutable settings object initialized by app lifespan."""
     return request.app.state.settings
 
 
@@ -80,7 +81,7 @@ def get_agentic_rag_service(request: Request) -> AgenticRAGService:
     return request.app.state.agentic_rag_service
 
 
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+SettingsDep = Annotated[Settings, Depends(get_request_settings)]
 DatabaseDep = Annotated[BaseDatabase, Depends(get_database)]
 SessionDep = Annotated[Session, Depends(get_db_session)]
 OpenSearchDep = Annotated[OpenSearchClient, Depends(get_opensearch_client)]
