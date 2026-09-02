@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -46,12 +45,6 @@ class ArxivSettings(BaseConfigSettings):
         "opensearch": "http://a9.com/-/spec/opensearch/1.1/",
         "arxiv": "http://arxiv.org/schemas/atom",
     }
-
-    @field_validator("pdf_cache_dir")
-    @classmethod
-    def validate_cache_dir(cls, value: str) -> str:
-        os.makedirs(value, exist_ok=True)
-        return value
 
 
 class PDFParserSettings(BaseConfigSettings):
