@@ -5,7 +5,6 @@ from typing import Generator, Optional
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
-
 from src.db.interfaces.base import BaseDatabase
 from src.schemas.database.config import PostgreSQLSettings
 

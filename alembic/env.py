@@ -2,10 +2,9 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
-
+from src import models as _models  # noqa: F401
 from src.config import get_settings
 from src.db.interfaces.postgresql import Base
-from src import models as _models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

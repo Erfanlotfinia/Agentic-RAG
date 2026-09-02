@@ -2,7 +2,6 @@ import json
 from unittest.mock import Mock
 
 import pytest
-
 from src.config import RedisSettings
 from src.services.cache.client import CacheClient
 

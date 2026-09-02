@@ -1,7 +1,6 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
-
 from src.dependencies import AgenticRAGDep, LangfuseDep
 from src.exceptions import OpenSearchException
 from src.schemas.api.ask import AgenticAskResponse, AskRequest, FeedbackRequest, FeedbackResponse

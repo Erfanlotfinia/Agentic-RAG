@@ -4,7 +4,6 @@ import logging
 from typing import List, Optional
 
 from langchain_core.tools import tool
-
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.opensearch.client import OpenSearchClient
 

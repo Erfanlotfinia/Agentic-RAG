@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
-
 from src.config import Settings
 from src.main import app
 from src.services.langfuse.client import LangfuseTracer

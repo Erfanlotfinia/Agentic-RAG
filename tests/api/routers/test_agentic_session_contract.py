@@ -1,7 +1,6 @@
 from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
-
 from src.routers.agentic_ask import ask_agentic
 from src.schemas.api.ask import AskRequest
 

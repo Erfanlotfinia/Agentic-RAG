@@ -1,4 +1,3 @@
-import pytest
 from src.config import get_settings
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.opensearch.factory import make_opensearch_client

@@ -2,7 +2,6 @@ import json
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
 from src.services.agents.tools import create_retriever_tool
 
 

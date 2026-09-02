@@ -2,7 +2,6 @@ from types import SimpleNamespace
 
 import httpx
 from fastapi import FastAPI
-
 from src.config import AuthSettings
 from src.security import enforce_api_security
 

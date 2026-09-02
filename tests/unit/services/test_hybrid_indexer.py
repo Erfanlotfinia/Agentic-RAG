@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.services.indexing.hybrid_indexer import HybridIndexingService
 
 

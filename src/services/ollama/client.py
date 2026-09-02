@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 import httpx
 from src.config import Settings
 from src.exceptions import OllamaConnectionError, OllamaException, OllamaTimeoutError
-from src.schemas.ollama import RAGResponse
 from src.services.ollama.prompts import RAGPromptBuilder, ResponseParser
 
 logger = logging.getLogger(__name__)

@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
-
 from src.config import get_settings
 from src.db.factory import make_database
 from src.routers import agentic_ask, hybrid_search, ping

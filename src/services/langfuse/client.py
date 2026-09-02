@@ -3,7 +3,6 @@ from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
 from langfuse import Langfuse
-
 from src.config import Settings
 
 logger = logging.getLogger(__name__)

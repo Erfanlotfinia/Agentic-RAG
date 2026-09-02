@@ -1,11 +1,10 @@
 import logging
 from typing import Optional
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-
 from src.schemas.api.ask import AskResponse
 from src.services.agents.agentic_rag import AgenticRAGService
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 logger = logging.getLogger(__name__)
 

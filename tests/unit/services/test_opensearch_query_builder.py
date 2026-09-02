@@ -1,4 +1,3 @@
-import pytest
 from src.services.opensearch.query_builder import QueryBuilder
 
 

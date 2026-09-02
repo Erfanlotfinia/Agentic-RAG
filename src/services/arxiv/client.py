@@ -9,7 +9,6 @@ from typing import List, Optional
 from urllib.parse import quote, urlencode
 
 import httpx
-
 from src.config import ArxivSettings
 from src.exceptions import ArxivAPIException, ArxivAPITimeoutError, ArxivParseError, PDFDownloadException, PDFDownloadTimeoutError
 from src.schemas.arxiv.paper import ArxivPaper

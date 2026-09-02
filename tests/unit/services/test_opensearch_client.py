@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from src.exceptions import OpenSearchException
 from src.services.opensearch.client import OpenSearchClient
 

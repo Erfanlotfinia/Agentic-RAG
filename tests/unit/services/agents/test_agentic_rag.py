@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-
 from src.services.agents.agentic_rag import AgenticRAGService
 from src.services.agents.config import GraphConfig
 from src.services.agents.models import GuardrailScoring, SourceItem

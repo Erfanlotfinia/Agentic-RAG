@@ -4,11 +4,11 @@ from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.trigger_rule import TriggerRule
+
 from arxiv_ingestion.fetching import fetch_daily_papers
 from arxiv_ingestion.indexing import index_papers_hybrid
 from arxiv_ingestion.reporting import generate_daily_report
 from arxiv_ingestion.setup import setup_environment
-
 
 default_args = {
     "owner": "falco",
