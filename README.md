@@ -13,24 +13,27 @@
 
 ## Product overview
 
-**Falco Agentic RAG** is a deployable research-intelligence platform for teams that need grounded answers from an indexed technical knowledge base. The included reference deployment is optimized for arXiv computer-science research, while the architecture keeps ingestion, retrieval, generation, state, and observability modular.
+**Falco Agentic RAG** is a deployable research-intelligence platform for teams that need grounded answers from an indexed technical knowledge base. The included reference deployment is optimized for arXiv computer-science research, while the architecture keeps ingestion, retrieval, generation, state, security controls, and observability modular.
 
 Falco combines two paths:
 
 - **Knowledge pipeline:** arXiv → PDF parsing → PostgreSQL → chunking → embeddings → OpenSearch.
 - **Serving platform:** FastAPI → search / conventional RAG / streaming RAG / Agentic RAG → OpenSearch + Ollama, with Redis and Langfuse around the request flow.
 
-PostgreSQL is the canonical document store. OpenSearch is the retrieval model. Ollama provides local inference. Jina provides retrieval embeddings. Airflow automates ingestion. Redis provides response caching and optional Agentic session history. Langfuse provides optional tracing and feedback.
+PostgreSQL `rag_db` is the canonical document store. A separate PostgreSQL `airflow_db` stores Airflow metadata. OpenSearch is the derived retrieval model. Ollama provides local inference. Jina provides retrieval embeddings. Airflow automates ingestion. Redis provides response caching, optional Agentic session history, and optional API rate-limit counters. Langfuse provides optional tracing and feedback.
 
 ## Core capabilities
 
 | Capability | What Falco provides |
 |---|---|
-| Automated ingestion | Scheduled arXiv discovery, PDF download, Docling parsing, persistence, and indexing |
+| Automated ingestion | Scheduled paginated arXiv discovery, bounded/atomic PDF download, Docling parsing, persistence, and indexing |
+| Ingestion completeness | Visible failure when an arXiv day exceeds the configured result cap instead of silently sampling a partial day |
 | Hybrid retrieval | BM25 + vector retrieval with Reciprocal Rank Fusion, pagination, score thresholds, and category filters |
 | Agentic RAG | Guardrails, retrieval, document grading, query rewriting, bounded retries, and grounded generation |
-| Graceful degradation | Automatic BM25 fallback when query embeddings are unavailable; Redis failures do not block stateless serving |
+| Graceful degradation | Automatic BM25 fallback when query embeddings are unavailable; Redis cache/session failures do not block stateless serving |
 | Conversation sessions | Redis-backed bounded Agentic history for explicit client session IDs, shared across API workers |
+| API protection | Optional Bearer authentication plus Redis-backed rate limiting with public health/readiness probes |
+| Database lifecycle | Alembic-owned canonical schema plus isolated Airflow metadata database/credentials |
 | Local inference | Ollama-backed generation without sending prompts to a hosted LLM provider |
 | Observability | Optional Langfuse traces for RAG/graph execution plus feedback capture |
 | Multi-channel access | REST API, streaming API, Falco Research Console, and optional Telegram interface |
@@ -51,7 +54,7 @@ PostgreSQL is the canonical document store. OpenSearch is the retrieval model. O
              │
              ▼
        PostgreSQL 16
-    canonical document store
+      canonical rag_db
              │
              ▼
         TextChunker
@@ -145,13 +148,13 @@ Request-level `model`, `top_k`, retrieval mode, categories, and optional `sessio
 cp .env.example .env
 # Configure required keys and replace all change-me values before deployment.
 
-uv sync
+uv sync --locked
 docker compose up --build -d
 curl http://localhost:8000/api/v1/health
 curl -f http://localhost:8000/api/v1/ready
 ```
 
-The reference Compose stack publishes host ports on `127.0.0.1` by default through `FALCO_BIND_ADDRESS`, reducing accidental network exposure. Production ingress, TLS, authentication, database isolation, and service hardening remain explicit deployment responsibilities.
+The reference Compose stack publishes host ports on `127.0.0.1` by default through `FALCO_BIND_ADDRESS`, reducing accidental network exposure. It also runs Alembic migrations before API startup and isolates Airflow metadata in `airflow_db`. For remotely reachable API traffic, enable `AUTH__ENABLED=true`, configure a strong `AUTH__API_KEY`, use TLS, and apply the network/identity controls described in [`SECURITY.md`](SECURITY.md).
 
 Interactive API documentation is available at `http://localhost:8000/docs`.
 
@@ -161,19 +164,21 @@ Interactive API documentation is available at `http://localhost:8000/docs`.
 uv run python gradio_launcher.py
 ```
 
-The local console is available at `http://localhost:7861`.
+The local console is available at `http://localhost:7861`. When built-in API authentication is enabled, set `FALCO_API_KEY` so the console can authenticate to the Falco API.
 
 ## API surface
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/v1/health` | Diagnostic platform and dependency status |
-| GET | `/api/v1/ready` | Readiness probe; HTTP 503 when required RAG dependencies are degraded |
+| GET | `/api/v1/health` | Diagnostic platform and dependency status; public probe |
+| GET | `/api/v1/ready` | Readiness probe; public, HTTP 503 when required RAG dependencies are degraded |
 | POST | `/api/v1/hybrid-search/` | BM25 or hybrid chunk retrieval |
 | POST | `/api/v1/ask` | Conventional grounded RAG |
 | POST | `/api/v1/stream` | Streaming conventional RAG |
 | POST | `/api/v1/ask-agentic` | Adaptive Agentic RAG |
 | POST | `/api/v1/feedback` | Attach feedback to a Langfuse trace |
+
+When `AUTH__ENABLED=true`, non-probe `/api/*` calls require `Authorization: Bearer <AUTH__API_KEY>`. Optional Redis-backed rate limiting returns standard limit/reset headers and HTTP 429 when exceeded.
 
 Example Agentic request:
 
@@ -204,14 +209,15 @@ query embedding ─► kNN ──┘
 
 ## Cache and conversation state
 
-Redis serves two independent responsibilities:
+Redis serves several independent responsibilities:
 
 - **Exact response cache** for conventional RAG. Cache identity includes query, model, `top_k`, requested retrieval mode, and categories. A hybrid request that temporarily degrades to BM25 is not stored as a valid hybrid cache result.
 - **Agentic session history** for explicit `session_id` values. Recent user/assistant turns are appended atomically, bounded, versioned by storage namespace, and expire using the configured Redis TTL.
+- **Optional API rate-limit counters** when built-in authentication/rate limiting is enabled.
 
 Requests without a `session_id` are isolated and do not expose Falco's internal graph thread identifier as a reusable public session. Redis-backed history is shared across the four Uvicorn workers used by the default Docker image.
 
-Redis connectivity is lazy/fail-open: cache or session failures do not prevent normal stateless requests, and recovered Redis connectivity can be used by later requests without restarting the API.
+Redis connectivity is lazy/fail-open for cache/session behavior: cache or session failures do not prevent normal stateless requests, and recovered Redis connectivity can be used by later requests without restarting the API. Rate limiting is intentionally fail-closed when enabled: protected API calls return HTTP 503 if the limiter cannot reach Redis.
 
 ## Observability
 
@@ -234,6 +240,8 @@ generate_daily_report
       ↓
 cleanup_temp_files
 ```
+
+arXiv discovery is paginated up to `ARXIV__MAX_RESULTS`. With the default `ARXIV__FAIL_ON_TRUNCATION=true`, Falco fails before PDF download/parsing when arXiv reports more matches than the configured cap, preventing a partial day from being silently treated as complete. PDF downloads are size-bounded, written as temporary `.part` files, and atomically promoted after success.
 
 The daily schedule prevents systematic Friday/weekend target-date gaps. Because `catchup=false`, a multi-day Airflow outage still requires an explicit backfill/checkpoint procedure.
 
@@ -259,10 +267,10 @@ All reference Compose host bindings default to loopback.
 
 - [`docs/README.md`](docs/README.md) — documentation index
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, data flow, storage, and Agentic graph
-- [`docs/API.md`](docs/API.md) — API behavior and request examples
+- [`docs/API.md`](docs/API.md) — API behavior, authentication, rate limiting, and request examples
 - [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) — environment and service configuration
-- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment and production checklist
-- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — health, ingestion, recovery, and backups
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment, migrations, topology, and production checklist
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — health, ingestion, migrations, recovery, and backups
 - [`SECURITY.md`](SECURITY.md) — deployment security requirements
 - [`CHANGELOG.md`](CHANGELOG.md) — candidate/release change history
 - [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — upstream licensing notices
@@ -273,13 +281,16 @@ All reference Compose host bindings default to loopback.
 .
 ├── src/                         # Falco application code
 │   ├── main.py                  # FastAPI composition root
+│   ├── security.py              # optional API auth/rate limiting
 │   ├── routers/                 # HTTP API
 │   ├── models/                  # SQLAlchemy models
 │   ├── schemas/                 # Pydantic contracts
 │   └── services/                # retrieval, agents, LLM, cache, tracing, integrations
+├── alembic/                     # canonical PostgreSQL migrations
 ├── airflow/                     # scheduled ingestion pipeline
 ├── docs/                        # product documentation and architecture assets
 ├── tests/                       # automated test suite
+├── .github/workflows/ci.yml     # locked/static/test/migration/container release gates
 ├── compose.yml                  # self-hosted reference stack
 └── gradio_launcher.py           # Falco Research Console launcher
 ```
@@ -287,16 +298,16 @@ All reference Compose host bindings default to loopback.
 ## Development and release checks
 
 ```bash
-uv sync
+uv sync --locked
 make lock-check
 make lint
 make test
 make health
 ```
 
-`make lock-check` verifies that `uv.lock` matches `pyproject.toml` without modifying it. The current productization branch still requires a real `uv lock` regeneration and full test/build/smoke execution before `1.0.0` should be tagged.
+`make lock-check` verifies that `uv.lock` matches `pyproject.toml` without modifying it. The product lockfile is regenerated for the Falco 1.0.0 metadata/dependency graph, and the permanent GitHub Actions workflow enforces locked dependency validation, Ruff, unit/API tests, Alembic fresh upgrade plus downgrade/re-upgrade, Compose database bootstrap, and API/Airflow image builds.
 
-The project targets Python `>=3.12,<3.13` and uses Ruff, MyPy, Pytest, and pre-commit tooling. The API runtime container runs as a non-root user.
+The project targets Python `>=3.12,<3.13`. The API runtime container runs as a non-root user.
 
 ## Technology references
 
@@ -309,6 +320,7 @@ The project targets Python `>=3.12,<3.13` and uses Ruff, MyPy, Pytest, and pre-c
 - [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview)
 - [Langfuse](https://langfuse.com/docs)
 - [Redis](https://redis.io/docs/)
+- [Alembic](https://alembic.sqlalchemy.org/)
 - [uv](https://docs.astral.sh/uv/)
 
 ## Licensing and commercial distribution
