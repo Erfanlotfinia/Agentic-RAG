@@ -21,8 +21,43 @@ jobs:
           version: "0.12.8"
           enable-cache: true
       - run: uv sync --locked
+      - name: Apply release-specific fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          compose = Path("compose.yml")
+          text = compose.read_text()
+          text = text.replace(
+              'psql -h postgres -U rag_user -d rag_db --set=airflow_password="$$AIRFLOW_POSTGRES_PASSWORD" -c "ALTER ROLE airflow_user WITH LOGIN PASSWORD :\'airflow_password\'"',
+              'printf "%s\\n" "ALTER ROLE airflow_user WITH LOGIN PASSWORD :\'airflow_password\';" | psql -h postgres -U rag_user -d rag_db --set=airflow_password="$$AIRFLOW_POSTGRES_PASSWORD"',
+          )
+          text = text.replace(
+              'psql -h postgres -U rag_user -d rag_db --set=airflow_password="$$AIRFLOW_POSTGRES_PASSWORD" -c "CREATE ROLE airflow_user WITH LOGIN PASSWORD :\'airflow_password\'"',
+              'printf "%s\\n" "CREATE ROLE airflow_user WITH LOGIN PASSWORD :\'airflow_password\';" | psql -h postgres -U rag_user -d rag_db --set=airflow_password="$$AIRFLOW_POSTGRES_PASSWORD"',
+          )
+          compose.write_text(text)
+
+          launcher = Path("gradio_launcher.py")
+          launcher.write_text(
+              '"""Launcher for the Falco Agentic RAG Research Console."""\n\n'
+              'from src.gradio_app import main\n\n'
+              'if __name__ == "__main__":\n'
+              '    main()\n'
+          )
+
+          paper = Path("src/repositories/paper.py")
+          text = paper.read_text()
+          text = text.replace("from datetime import datetime\n", "")
+          text = text.replace("Paper.pdf_processed == True", "Paper.pdf_processed.is_(True)")
+          text = text.replace("Paper.pdf_processed == False", "Paper.pdf_processed.is_(False)")
+          text = text.replace("Paper.raw_text != None", "Paper.raw_text.is_not(None)")
+          paper.write_text(text)
+          PY
       - name: Apply safe Ruff fixes
-        run: uv run ruff check . --fix
+        run: uv run ruff check . --fix || true
+      - name: Verify Ruff
+        run: uv run ruff check .
       - name: Commit deterministic fixes
         run: |
           if git diff --quiet; then
@@ -32,5 +67,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "style: apply Ruff fixes"
+          git commit -m "style: apply final release fixes"
           git push
