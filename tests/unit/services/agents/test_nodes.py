@@ -206,11 +206,7 @@ class TestOutOfScopeNode:
 
     @pytest.mark.asyncio
     async def test_out_of_scope_response(self, test_context, sample_human_message):
-        """Test out-of-scope helpful rejection."""
-        mock_llm = Mock()
-        mock_llm.ainvoke = AsyncMock(return_value=Mock(content="I'm designed to help with AI research papers."))
-        test_context.ollama_client.get_langchain_model = Mock(return_value=mock_llm)
-
+        """Test the deterministic out-of-scope response contract."""
         state: AgentState = {
             "messages": [sample_human_message],
             "retrieval_attempts": 0,
@@ -222,7 +218,10 @@ class TestOutOfScopeNode:
 
         assert "messages" in result
         assert isinstance(result["messages"][0], AIMessage)
-        assert "AI research papers" in result["messages"][0].content
+        response = result["messages"][0].content
+        assert "academic research papers" in response
+        assert "AI/ML research papers" in response
+        assert "What is machine learning?" in response
 
 
 class TestNodeUtils:
