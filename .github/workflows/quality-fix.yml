@@ -53,6 +53,14 @@ jobs:
           text = text.replace("Paper.pdf_processed == False", "Paper.pdf_processed.is_(False)")
           text = text.replace("Paper.raw_text != None", "Paper.raw_text.is_not(None)")
           paper.write_text(text)
+
+          config_test = Path("tests/unit/test_config.py")
+          text = config_test.read_text()
+          text = text.replace(
+              '    expected_host = "http://ollama:11434" if "OLLAMA_HOST" not in os.environ else settings.ollama_host\n',
+              "",
+          )
+          config_test.write_text(text)
           PY
       - name: Apply safe Ruff fixes
         run: uv run ruff check . --fix || true
