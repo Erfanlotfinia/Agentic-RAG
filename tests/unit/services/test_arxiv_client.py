@@ -169,9 +169,13 @@ class TestArxivClient:
         stream_context.__aenter__ = AsyncMock(return_value=response)
         stream_context.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("httpx.AsyncClient") as mock_client:
-            client = mock_client.return_value.__aenter__.return_value
-            client.stream.return_value = stream_context
+        client = MagicMock()
+        client.stream = MagicMock(return_value=stream_context)
+        client_context = MagicMock()
+        client_context.__aenter__ = AsyncMock(return_value=client)
+        client_context.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("httpx.AsyncClient", return_value=client_context):
             with pytest.raises(PDFDownloadException, match="exceeds configured download limit"):
                 await arxiv_client._download_with_retry("https://arxiv.org/pdf/test", target, max_retries=1)
 
