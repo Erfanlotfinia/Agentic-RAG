@@ -86,7 +86,6 @@ class TestRetrieveNode:
 
         assert "messages" in result
         assert isinstance(result["messages"][0], AIMessage)
-        # Check that message indicates failure to find papers
         content_lower = result["messages"][0].content.lower()
         assert "apologize" in content_lower or "unable" in content_lower or "couldn't find" in content_lower
 
@@ -97,12 +96,16 @@ class TestGradeDocumentsNode:
     @pytest.mark.asyncio
     async def test_grade_documents_relevant(self, test_context, sample_human_message, sample_tool_message):
         """Test grading node with relevant documents."""
+        structured_llm = Mock()
+        structured_llm.ainvoke = AsyncMock(
+            return_value=GradeDocuments(
+                binary_score="yes",
+                reasoning="Document discusses transformers which is relevant",
+            )
+        )
         mock_llm = Mock()
-        mock_llm.ainvoke = AsyncMock(return_value=GradeDocuments(
-            binary_score="yes",
-            reasoning="Document discusses transformers which is relevant"
-        ))
-        test_context.ollama_client.create_llm = Mock(return_value=mock_llm)
+        mock_llm.with_structured_output = Mock(return_value=structured_llm)
+        test_context.ollama_client.get_langchain_model = Mock(return_value=mock_llm)
 
         state: AgentState = {
             "messages": [sample_human_message, sample_tool_message],
@@ -114,16 +117,22 @@ class TestGradeDocumentsNode:
         result = await ainvoke_grade_documents_step(state, runtime)
 
         assert "grading_results" in result
+        assert result["routing_decision"] == "generate_answer"
+        assert result["grading_results"][0].is_relevant is True
 
     @pytest.mark.asyncio
     async def test_grade_documents_not_relevant(self, test_context, sample_human_message, sample_tool_message):
         """Test grading node with irrelevant documents."""
+        structured_llm = Mock()
+        structured_llm.ainvoke = AsyncMock(
+            return_value=GradeDocuments(
+                binary_score="no",
+                reasoning="Document is not relevant to the query",
+            )
+        )
         mock_llm = Mock()
-        mock_llm.ainvoke = AsyncMock(return_value=GradeDocuments(
-            binary_score="no",
-            reasoning="Document is not relevant to the query"
-        ))
-        test_context.ollama_client.create_llm = Mock(return_value=mock_llm)
+        mock_llm.with_structured_output = Mock(return_value=structured_llm)
+        test_context.ollama_client.get_langchain_model = Mock(return_value=mock_llm)
 
         state: AgentState = {
             "messages": [sample_human_message, sample_tool_message],
@@ -135,6 +144,8 @@ class TestGradeDocumentsNode:
         result = await ainvoke_grade_documents_step(state, runtime)
 
         assert "grading_results" in result
+        assert result["routing_decision"] == "rewrite_query"
+        assert result["grading_results"][0].is_relevant is False
 
 
 class TestRewriteQueryNode:
@@ -144,10 +155,10 @@ class TestRewriteQueryNode:
     async def test_rewrite_query_success(self, test_context, sample_human_message):
         """Test query rewriting with LLM."""
         mock_llm = Mock()
-        mock_llm.ainvoke = AsyncMock(return_value=Mock(
-            content="What are the key concepts in transformer neural network architectures?"
-        ))
-        test_context.ollama_client.create_llm = Mock(return_value=mock_llm)
+        mock_llm.ainvoke = AsyncMock(
+            return_value=Mock(content="What are the key concepts in transformer neural network architectures?")
+        )
+        test_context.ollama_client.get_langchain_model = Mock(return_value=mock_llm)
 
         state: AgentState = {
             "messages": [sample_human_message],
@@ -171,10 +182,10 @@ class TestGenerateAnswerNode:
     async def test_generate_answer_success(self, test_context, sample_human_message, sample_tool_message):
         """Test answer generation with context."""
         mock_llm = Mock()
-        mock_llm.ainvoke = AsyncMock(return_value=Mock(
-            content="Based on the papers, transformers are neural network architectures."
-        ))
-        test_context.ollama_client.create_llm = Mock(return_value=mock_llm)
+        mock_llm.ainvoke = AsyncMock(
+            return_value=Mock(content="Based on the papers, transformers are neural network architectures.")
+        )
+        test_context.ollama_client.get_langchain_model = Mock(return_value=mock_llm)
 
         state: AgentState = {
             "messages": [sample_human_message, sample_tool_message],
@@ -187,7 +198,7 @@ class TestGenerateAnswerNode:
 
         assert "messages" in result
         assert isinstance(result["messages"][0], AIMessage)
-        assert len(result["messages"][0].content) > 0
+        assert result["messages"][0].content.startswith("Based on the papers")
 
 
 class TestOutOfScopeNode:
@@ -197,10 +208,8 @@ class TestOutOfScopeNode:
     async def test_out_of_scope_response(self, test_context, sample_human_message):
         """Test out-of-scope helpful rejection."""
         mock_llm = Mock()
-        mock_llm.ainvoke = AsyncMock(return_value=Mock(
-            content="I'm designed to help with AI research papers."
-        ))
-        test_context.ollama_client.create_llm = Mock(return_value=mock_llm)
+        mock_llm.ainvoke = AsyncMock(return_value=Mock(content="I'm designed to help with AI research papers."))
+        test_context.ollama_client.get_langchain_model = Mock(return_value=mock_llm)
 
         state: AgentState = {
             "messages": [sample_human_message],
@@ -213,6 +222,7 @@ class TestOutOfScopeNode:
 
         assert "messages" in result
         assert isinstance(result["messages"][0], AIMessage)
+        assert "AI research papers" in result["messages"][0].content
 
 
 class TestNodeUtils:
