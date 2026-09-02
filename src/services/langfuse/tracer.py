@@ -2,7 +2,7 @@
 
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from .client import LangfuseTracer
 

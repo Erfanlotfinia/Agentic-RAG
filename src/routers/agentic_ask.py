@@ -1,8 +1,11 @@
-from fastapi import APIRouter, HTTPException
+import logging
 
+from fastapi import APIRouter, HTTPException
 from src.dependencies import AgenticRAGDep, LangfuseDep
+from src.exceptions import OpenSearchException
 from src.schemas.api.ask import AgenticAskResponse, AskRequest, FeedbackRequest, FeedbackResponse
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["agentic-rag"])
 
 
@@ -30,12 +33,18 @@ async def ask_agentic(
             search_mode=result.get("search_mode", "hybrid" if request.use_hybrid else "bm25"),
             reasoning_steps=result.get("reasoning_steps", []),
             retrieval_attempts=result.get("retrieval_attempts", 0),
+            rewritten_query=result.get("rewritten_query"),
+            session_id=request.session_id,
             trace_id=result.get("trace_id"),
         )
+    except OpenSearchException:
+        logger.exception("Search backend unavailable during Agentic RAG request")
+        raise HTTPException(status_code=503, detail="Search service is currently unavailable")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error processing question: {str(exc)}") from exc
+    except Exception:
+        logger.exception("Agentic RAG request failed")
+        raise HTTPException(status_code=500, detail="Unable to process the Agentic RAG request")
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
@@ -60,5 +69,6 @@ async def submit_feedback(
         return FeedbackResponse(success=True, message="Feedback recorded successfully")
     except HTTPException:
         raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error submitting feedback: {str(exc)}") from exc
+    except Exception:
+        logger.exception("Feedback submission failed")
+        raise HTTPException(status_code=500, detail="Unable to submit feedback")

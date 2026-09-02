@@ -1,104 +1,84 @@
-# Airflow Configuration
+# Falco Ingestion Pipeline
 
-This directory contains Apache Airflow configuration and DAGs for the arXiv Paper Curator project.
+This directory contains the Apache Airflow runtime used by Falco Agentic RAG to discover, parse, store, and index research papers.
 
-<p align="center">
-  <img src="../static/week2_data_ingestion_flow.png" alt="Week 2 Data Ingestion Architecture" width="800">
-</p>
+## Ingestion DAG
 
-## Current Setup
+`arxiv_paper_ingestion.py` is the scheduled ingestion workflow. By default it runs daily at 06:00 UTC and targets the previous calendar date. A daily schedule avoids intentionally skipping Friday/weekend target dates; production operators should still define a backfill/checkpoint strategy for multi-day scheduler outages.
 
-### Production-Ready DAGs
-- **hello_world_dag.py**: Basic health check DAG
-- **arxiv_paper_ingestion.py**: Main production DAG for automated arXiv paper fetching and processing
-
-### Production Pipeline Features
-- **Daily arXiv ingestion**: Automated fetching of CS.AI papers
-- **PDF processing**: Download and parse papers using Docling
-- **Database storage**: Store complete paper metadata and content in PostgreSQL
-- **Error handling**: Comprehensive retry logic and error reporting
-- **Cross-platform compatibility**: Works on macOS, Linux, WSL, and Ubuntu
-
-## Directory Structure
-
-```
-airflow/
-├── README.md                           # This file
-├── Dockerfile                          # Custom Airflow container with dependencies
-├── requirements-airflow.txt            # Python dependencies for DAGs
-└── dags/
-    ├── hello_world_dag.py             # Health check DAG
-    ├── arxiv_paper_ingestion.py       # Production ingestion DAG
-    └── arxiv_ingestion/
-        └── tasks.py                   # Production pipeline tasks with async processing
+```text
+setup_environment
+      ↓
+fetch_daily_papers
+      ↓
+index_papers_hybrid
+      ↓
+generate_daily_report
+      ↓
+cleanup_temp_files
 ```
 
-## Docker Configuration
+### `setup_environment`
 
-### Cross-Platform Compatibility
-The Airflow container is configured for cross-platform deployment:
-- **User Configuration**: Runs as `airflow` user (50000:0) to avoid permission issues
-- **Volume Management**: Uses named volumes for logs to prevent bind mount conflicts
-- **Database Integration**: Connects to shared PostgreSQL instance
-- **Service Dependencies**: Automatic initialization and health checks
+Verifies PostgreSQL connectivity, requires OpenSearch cluster health to be green or yellow, and ensures the hybrid index and RRF search pipeline exist.
 
-### Container Features
-- **Python 3.12** with Apache Airflow 2.10.3
-- **PostgreSQL support** via psycopg2
-- **PDF processing** with Docling, Tesseract OCR, and Poppler utilities
-- **Rate limiting** and retry logic for arXiv API compliance
-- **Async processing** for optimal performance with concurrent downloads and parsing
+### `fetch_daily_papers`
 
-## Usage
+Retrieves the target arXiv papers, downloads and parses PDFs with Docling, and persists canonical paper data to PostgreSQL.
 
-### Web Interface
-- **URL**: http://localhost:8080
-- **Credentials**: Auto-generated during container initialization
-- **Features**: DAG monitoring, task logs, pipeline statistics
+### `index_papers_hybrid`
 
-### Production DAG (`arxiv_paper_ingestion`)
-1. **Environment Setup**: Verify services and initialize caching
-2. **Daily Paper Fetch**: Retrieve papers from previous day (10 papers default)
-3. **PDF Processing**: Download and parse PDFs with Docling
-4. **Failed PDF Retry**: Handle any processing failures
-5. **Database Storage**: Store complete paper data with parsed content
-6. **OpenSearch Placeholders**: Prepare for Week 3+ search indexing
-7. **Daily Report**: Generate comprehensive processing statistics
+Reads recently stored papers, creates configured chunks, generates Jina passage embeddings, and updates the OpenSearch retrieval index.
 
-### Pipeline Performance
-- **Concurrent Processing**: 5 parallel downloads, 1 parsing operation (laptop-optimized)
-- **Rate Limiting**: Respects arXiv API guidelines (3-second delays)
-- **Caching**: PDF files cached locally to avoid re-downloading
-- **Error Resilience**: Continues processing even with individual paper failures
+### `generate_daily_report`
+
+Collects ingestion and indexing statistics and records an operational summary through Airflow XCom/logging.
+
+### `cleanup_temp_files`
+
+Removes cached PDFs older than the retention window from the path configured by `ARXIV__PDF_CACHE_DIR`.
+
+## Runtime integration
+
+Airflow mounts the Falco `src/` directory and uses the same application services and environment configuration as the API stack. Core dependencies are:
+
+- PostgreSQL for canonical paper data;
+- OpenSearch for the retrieval index;
+- Jina for passage embeddings;
+- arXiv for source discovery;
+- Docling for PDF parsing.
+
+The Airflow image installs the Python packages imported by these shared Falco modules separately from the API image. Keep `airflow/requirements-airflow.txt` aligned with imports used by ingestion code.
+
+## Web interface
+
+Default local URL: `http://localhost:8080`
+
+Airflow credentials are generated/configured by the container runtime. Treat the web UI as an administrative surface and restrict it appropriately in production.
 
 ## Configuration
 
-### Environment Variables
-```bash
-AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+Important settings are defined in the root `.env` file. Examples:
+
+```text
 AIRFLOW__CORE__EXECUTOR=LocalExecutor
-POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
-PYTHONPATH=/opt/airflow/src
+AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://rag_user:<password>@postgres:5432/rag_db
+POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:<password>@postgres:5432/rag_db
+OPENSEARCH__HOST=http://opensearch:9200
+ARXIV__PDF_CACHE_DIR=./data/arxiv_pdfs
+JINA_API_KEY=...
 ```
 
-### Service Dependencies
-- **PostgreSQL**: Paper metadata and content storage
-- **Source Code**: Mounted from `../src` for service access
-- **Shared Network**: Communication with API and database services
+The reference Compose stack overrides/constructs connection values from shared secret variables where appropriate. See [`../docs/CONFIGURATION.md`](../docs/CONFIGURATION.md) for the complete product configuration model.
 
-## Implementation Status
+## Operations
 
-### ✅ Completed Features
-- Custom Docker container with all dependencies
-- Production arXiv ingestion DAG with comprehensive error handling
-- Async PDF processing pipeline with concurrency control
-- PostgreSQL integration with complete content storage
-- Cross-platform compatibility (macOS, Linux, WSL, Ubuntu)
-- Rate limiting and retry logic for arXiv API compliance
-- Detailed logging and monitoring throughout pipeline
+Use the Airflow UI and task logs to inspect pipeline failures and retries. The DAG uses bounded retries and reports pipeline statistics after normal runs.
 
-### Roadmap
-- **OpenSearch Integration**: Extended search indexing capabilities
-- **Advanced Scheduling**: Multiple collection strategies
-- **Monitoring & Alerting**: Production observability
-- **Scale Optimization**: Higher concurrency for production workloads
+The current reference topology shares the Falco PostgreSQL database with Airflow metadata. Isolate Airflow metadata into a separate database and credentials for a hardened production deployment; see the deployment guide for this explicit architecture decision.
+
+For deployment, backup, recovery, and hardening guidance see:
+
+- [`../docs/OPERATIONS.md`](../docs/OPERATIONS.md)
+- [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md)
+- [`../SECURITY.md`](../SECURITY.md)

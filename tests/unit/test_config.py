@@ -1,17 +1,15 @@
-import os
 
-import pytest
 from src.config import Settings
 
 
 def test_settings_initialization():
-    """Test settings can be initialized."""
+    """Test settings can be initialized with product defaults."""
     settings = Settings()
 
-    assert settings.app_version == "0.1.0"
-    assert settings.debug is True
+    assert settings.app_version == "1.0.0"
+    assert settings.debug is False
     assert settings.environment == "development"
-    assert settings.service_name == "rag-api"
+    assert settings.service_name == "falco-agentic-rag-api"
 
 
 def test_settings_postgres_defaults():
@@ -36,6 +34,4 @@ def test_settings_ollama_defaults():
     """Test Ollama default configuration."""
     settings = Settings()
 
-    # In Docker environment, this should be ollama service host
-    expected_host = "http://ollama:11434" if "OLLAMA_HOST" not in os.environ else settings.ollama_host
     assert settings.ollama_host in ["http://localhost:11434", "http://ollama:11434"]

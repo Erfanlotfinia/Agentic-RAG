@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from langfuse._client.span import LangfuseSpan
-
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.langfuse.client import LangfuseTracer
 from src.services.ollama.client import OllamaClient

@@ -1,9 +1,9 @@
+import asyncio
 import json
 import logging
 from typing import List, Optional
 
 from langchain_core.tools import tool
-
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.opensearch.client import OpenSearchClient
 
@@ -35,7 +35,7 @@ def create_retriever_tool(
     @tool
     async def retrieve_papers(query: str) -> str:
         """Search and return relevant arXiv research paper chunks with source metadata."""
-        logger.info("Retrieving papers for query: %s", query[:100])
+        logger.info("Retrieving papers (query_length=%s, top_k=%s)", len(query), top_k)
 
         query_embedding = None
         effective_hybrid = use_hybrid
@@ -46,7 +46,8 @@ def create_retriever_tool(
                 logger.warning("Query embedding failed; falling back to BM25: %s", exc)
                 effective_hybrid = False
 
-        search_results = opensearch_client.search_unified(
+        search_results = await asyncio.to_thread(
+            opensearch_client.search_unified,
             query=query,
             query_embedding=query_embedding,
             size=top_k,

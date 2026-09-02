@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -39,7 +38,7 @@ class PaperRepository:
         """Get papers that have been successfully processed with PDF content."""
         stmt = (
             select(Paper)
-            .where(Paper.pdf_processed == True)
+            .where(Paper.pdf_processed.is_(True))
             .order_by(Paper.pdf_processing_date.desc())
             .limit(limit)
             .offset(offset)
@@ -48,12 +47,12 @@ class PaperRepository:
 
     def get_unprocessed_papers(self, limit: int = 100, offset: int = 0) -> List[Paper]:
         """Get papers that haven't been processed for PDF content yet."""
-        stmt = select(Paper).where(Paper.pdf_processed == False).order_by(Paper.published_date.desc()).limit(limit).offset(offset)
+        stmt = select(Paper).where(Paper.pdf_processed.is_(False)).order_by(Paper.published_date.desc()).limit(limit).offset(offset)
         return list(self.session.scalars(stmt))
 
     def get_papers_with_raw_text(self, limit: int = 100, offset: int = 0) -> List[Paper]:
         """Get papers that have raw text content stored."""
-        stmt = select(Paper).where(Paper.raw_text != None).order_by(Paper.pdf_processing_date.desc()).limit(limit).offset(offset)
+        stmt = select(Paper).where(Paper.raw_text.is_not(None)).order_by(Paper.pdf_processing_date.desc()).limit(limit).offset(offset)
         return list(self.session.scalars(stmt))
 
     def get_processing_stats(self) -> dict:
@@ -61,11 +60,11 @@ class PaperRepository:
         total_papers = self.get_count()
 
         # Count processed papers
-        processed_stmt = select(func.count(Paper.id)).where(Paper.pdf_processed == True)
+        processed_stmt = select(func.count(Paper.id)).where(Paper.pdf_processed.is_(True))
         processed_papers = self.session.scalar(processed_stmt) or 0
 
         # Count papers with text
-        text_stmt = select(func.count(Paper.id)).where(Paper.raw_text != None)
+        text_stmt = select(func.count(Paper.id)).where(Paper.raw_text.is_not(None))
         papers_with_text = self.session.scalar(text_stmt) or 0
 
         return {

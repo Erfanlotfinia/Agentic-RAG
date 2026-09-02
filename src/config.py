@@ -1,8 +1,7 @@
-import os
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -30,26 +29,22 @@ class ArxivSettings(BaseConfigSettings):
 
     base_url: str = "https://export.arxiv.org/api/query"
     pdf_cache_dir: str = "./data/arxiv_pdfs"
-    rate_limit_delay: float = 3.0
-    timeout_seconds: int = 30
-    max_results: int = 15
+    rate_limit_delay: float = Field(3.0, ge=0.0)
+    timeout_seconds: int = Field(30, ge=1, le=300)
+    max_results: int = Field(250, ge=1, le=10000)
+    page_size: int = Field(100, ge=1, le=2000)
+    fail_on_truncation: bool = True
     search_category: str = "cs.AI"
-    download_max_retries: int = 3
-    download_retry_delay_base: float = 5.0
-    max_concurrent_downloads: int = 5
-    max_concurrent_parsing: int = 1
+    download_max_retries: int = Field(3, ge=1, le=10)
+    download_retry_delay_base: float = Field(5.0, ge=0.0, le=300.0)
+    max_concurrent_downloads: int = Field(5, ge=1, le=50)
+    max_concurrent_parsing: int = Field(1, ge=1, le=16)
 
     namespaces: dict = {
         "atom": "http://www.w3.org/2005/Atom",
         "opensearch": "http://a9.com/-/spec/opensearch/1.1/",
         "arxiv": "http://arxiv.org/schemas/atom",
     }
-
-    @field_validator("pdf_cache_dir")
-    @classmethod
-    def validate_cache_dir(cls, v: str) -> str:
-        os.makedirs(v, exist_ok=True)
-        return v
 
 
 class PDFParserSettings(BaseConfigSettings):
@@ -61,8 +56,8 @@ class PDFParserSettings(BaseConfigSettings):
         case_sensitive=False,
     )
 
-    max_pages: int = 30
-    max_file_size_mb: int = 20
+    max_pages: int = Field(30, ge=1, le=1000)
+    max_file_size_mb: int = Field(20, ge=1, le=500)
     do_ocr: bool = False
     do_table_structure: bool = True
 
@@ -92,6 +87,11 @@ class OpenSearchSettings(BaseConfigSettings):
     )
 
     host: str = "http://localhost:9200"
+    username: str = ""
+    password: str = ""
+    use_ssl: bool = False
+    verify_certs: bool = True
+    ca_certs: Optional[str] = None
     index_name: str = "arxiv-papers"
     chunk_index_suffix: str = "chunks"
     max_text_size: int = 1000000
@@ -113,7 +113,7 @@ class LangfuseSettings(BaseConfigSettings):
     public_key: str = ""
     secret_key: str = ""
     host: str = "http://localhost:3001"
-    enabled: bool = True
+    enabled: bool = False
     flush_at: int = 15
     flush_interval: float = 1.0
     max_retries: int = 3
@@ -153,11 +153,35 @@ class TelegramSettings(BaseConfigSettings):
     enabled: bool = False
 
 
+class AuthSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="AUTH__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    enabled: bool = False
+    api_key: SecretStr = SecretStr("")
+    rate_limit_enabled: bool = False
+    rate_limit_requests: int = Field(60, ge=1, le=100000)
+    rate_limit_window_seconds: int = Field(60, ge=1, le=86400)
+
+    @model_validator(mode="after")
+    def validate_security_configuration(self):
+        if self.enabled and len(self.api_key.get_secret_value()) < 32:
+            raise ValueError("AUTH__API_KEY must contain at least 32 characters when authentication is enabled")
+        if self.rate_limit_enabled and not self.enabled:
+            raise ValueError("AUTH__RATE_LIMIT_ENABLED requires AUTH__ENABLED=true")
+        return self
+
+
 class Settings(BaseConfigSettings):
-    app_version: str = "0.1.0"
-    debug: bool = True
+    app_version: str = "1.0.0"
+    debug: bool = False
     environment: Literal["development", "staging", "production"] = "development"
-    service_name: str = "rag-api"
+    service_name: str = "falco-agentic-rag-api"
 
     postgres_database_url: str = "postgresql://rag_user:rag_password@localhost:5432/rag_db"
     postgres_echo_sql: bool = False
@@ -177,13 +201,14 @@ class Settings(BaseConfigSettings):
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    auth: AuthSettings = Field(default_factory=AuthSettings)
 
     @field_validator("postgres_database_url")
     @classmethod
-    def validate_database_url(cls, v: str) -> str:
-        if not (v.startswith("postgresql://") or v.startswith("postgresql+psycopg2://")):
+    def validate_database_url(cls, value: str) -> str:
+        if not (value.startswith("postgresql://") or value.startswith("postgresql+psycopg2://")):
             raise ValueError("Database URL must start with 'postgresql://' or 'postgresql+psycopg2://'")
-        return v
+        return value
 
 
 def get_settings() -> Settings:

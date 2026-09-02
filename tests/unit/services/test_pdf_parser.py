@@ -1,9 +1,9 @@
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from src.exceptions import PDFParsingException, PDFValidationError
-from src.schemas.pdf_parser.models import PaperSection, ParserType, PdfContent
+from src.schemas.pdf_parser.models import ParserType, PdfContent
 from src.services.pdf_parser.docling import DoclingParser
 from src.services.pdf_parser.factory import make_pdf_parser_service
 from src.services.pdf_parser.parser import PDFParserService
@@ -105,7 +105,7 @@ class TestPDFParserService:
 
         assert "PDF file not found" in str(exc_info.value)
 
-    @patch("src.services.pdf_parser.parser.DoclingParser.parse_pdf")
+    @patch("src.services.pdf_parser.parser.DoclingParser.parse_pdf", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_parse_pdf_success(self, mock_parse, pdf_parser_service, valid_pdf_path):
         """Test successful PDF parsing."""
@@ -117,9 +117,9 @@ class TestPDFParserService:
         result = await pdf_parser_service.parse_pdf(valid_pdf_path)
 
         assert result == mock_content
-        mock_parse.assert_called_once_with(valid_pdf_path)
+        mock_parse.assert_awaited_once_with(valid_pdf_path)
 
-    @patch("src.services.pdf_parser.parser.DoclingParser.parse_pdf")
+    @patch("src.services.pdf_parser.parser.DoclingParser.parse_pdf", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_parse_pdf_no_result(self, mock_parse, pdf_parser_service, valid_pdf_path):
         """Test PDF parsing when no result is returned."""
@@ -130,7 +130,7 @@ class TestPDFParserService:
 
         assert "Docling parsing returned no result" in str(exc_info.value)
 
-    @patch("src.services.pdf_parser.parser.DoclingParser.parse_pdf")
+    @patch("src.services.pdf_parser.parser.DoclingParser.parse_pdf", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_parse_pdf_docling_error(self, mock_parse, pdf_parser_service, valid_pdf_path):
         """Test PDF parsing when Docling raises an error."""

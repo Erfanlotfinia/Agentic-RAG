@@ -1,14 +1,15 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
-
 from src.config import get_settings
 from src.db.factory import make_database
 from src.routers import agentic_ask, hybrid_search, ping
 from src.routers.ask import ask_router, stream_router
+from src.security import enforce_api_security
 from src.services.agents.factory import make_agentic_rag_service
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.cache.factory import make_cache_client
@@ -28,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize and tear down application-scoped services."""
-    logger.info("Starting RAG API...")
+    """Initialize and tear down application-scoped Falco services."""
+    logger.info("Starting Falco Agentic RAG API...")
 
     settings = get_settings()
     app.state.settings = settings
@@ -54,14 +55,19 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.info("OpenSearch index ready (stats unavailable)")
     else:
-        logger.warning("OpenSearch connection failed - search features will be limited")
+        logger.warning("OpenSearch connection failed - retrieval features will be limited")
 
     app.state.arxiv_client = make_arxiv_client()
     app.state.pdf_parser = make_pdf_parser_service()
     app.state.embeddings_service = make_embeddings_service()
     app.state.ollama_client = make_ollama_client()
     app.state.langfuse_tracer = make_langfuse_tracer()
-    app.state.cache_client = make_cache_client(settings)
+
+    try:
+        app.state.cache_client = make_cache_client(settings)
+    except Exception as exc:
+        app.state.cache_client = None
+        logger.warning("Redis unavailable - response caching and Agentic session persistence are disabled: %s", exc)
 
     app.state.agentic_rag_service = make_agentic_rag_service(
         opensearch_client=app.state.opensearch_client,
@@ -71,7 +77,7 @@ async def lifespan(app: FastAPI):
         cache_client=app.state.cache_client,
         model=settings.ollama_model,
     )
-    logger.info("Core RAG and Agentic RAG services initialized")
+    logger.info("Falco RAG and Agentic RAG services initialized")
 
     telegram_service = make_telegram_service(
         opensearch_client=app.state.opensearch_client,
@@ -83,37 +89,54 @@ async def lifespan(app: FastAPI):
         app.state.telegram_service = telegram_service
         try:
             await telegram_service.start()
-            logger.info("Telegram bot started successfully")
+            logger.info("Falco Telegram interface started successfully")
         except Exception as exc:
-            logger.error("Failed to start Telegram bot: %s", exc)
+            logger.error("Failed to start Telegram interface: %s", exc)
     else:
-        logger.info("Telegram bot not configured - skipping initialization")
+        logger.info("Telegram interface not configured - skipping initialization")
 
-    logger.info("API ready")
-    yield
-
-    if hasattr(app.state, "telegram_service") and app.state.telegram_service:
-        await app.state.telegram_service.stop()
-        logger.info("Telegram bot stopped")
-
+    logger.info("Falco Agentic RAG API ready")
     try:
-        await app.state.embeddings_service.close()
-    except Exception:
-        logger.debug("Embeddings client cleanup skipped", exc_info=True)
+        yield
+    finally:
+        if getattr(app.state, "telegram_service", None):
+            try:
+                await app.state.telegram_service.stop()
+                logger.info("Telegram interface stopped")
+            except Exception:
+                logger.exception("Telegram interface cleanup failed")
 
-    if app.state.langfuse_tracer:
-        app.state.langfuse_tracer.shutdown()
+        try:
+            await app.state.embeddings_service.close()
+        except Exception:
+            logger.debug("Embeddings client cleanup skipped", exc_info=True)
 
-    database.teardown()
-    logger.info("API shutdown complete")
+        try:
+            if app.state.langfuse_tracer:
+                app.state.langfuse_tracer.shutdown()
+        except Exception:
+            logger.exception("Langfuse cleanup failed")
+
+        try:
+            await asyncio.to_thread(opensearch_client.close)
+        except Exception:
+            logger.exception("OpenSearch cleanup failed")
+
+        try:
+            database.teardown()
+        except Exception:
+            logger.exception("Database cleanup failed")
+
+        logger.info("Falco Agentic RAG API shutdown complete")
 
 
 app = FastAPI(
-    title="arXiv Paper Curator API",
-    description="Personal arXiv CS.AI paper curator with RAG capabilities",
-    version=os.getenv("APP_VERSION", "0.1.0"),
+    title="Falco Agentic RAG API",
+    description="Self-hosted research intelligence API with hybrid retrieval, grounded RAG, and adaptive Agentic RAG.",
+    version=os.getenv("APP_VERSION", "1.0.0"),
     lifespan=lifespan,
 )
+app.middleware("http")(enforce_api_security)
 
 app.include_router(ping.router, prefix="/api/v1")
 app.include_router(hybrid_search.router, prefix="/api/v1")

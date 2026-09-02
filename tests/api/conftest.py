@@ -1,9 +1,12 @@
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
+from src.config import Settings
 from src.main import app
+from src.services.langfuse.client import LangfuseTracer
 
 
 @pytest.fixture(scope="session")
@@ -14,34 +17,67 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 async def client():
-    """HTTP client for API testing with mocked services."""
-    # Mock database startup and session to prevent real connections
+    """HTTP client whose application lifespan is fully isolated from external services."""
+    mock_database = MagicMock()
+    mock_session = MagicMock()
+
+    @contextmanager
+    def _session_scope():
+        yield mock_session
+
+    mock_database.get_session.side_effect = _session_scope
+
+    mock_opensearch = MagicMock()
+    mock_opensearch.health_check.return_value = True
+    mock_opensearch.setup_indices.return_value = {"hybrid_index": False, "rrf_pipeline": False}
+    mock_opensearch.client.count.return_value = {"count": 0}
+    mock_opensearch.get_index_stats.return_value = {
+        "index_name": "arxiv-papers-chunks",
+        "exists": True,
+        "document_count": 0,
+    }
+    mock_opensearch.search_unified.return_value = {"total": 0, "hits": []}
+
+    mock_embeddings = MagicMock()
+    mock_embeddings.embed_query = AsyncMock(return_value=[0.1, 0.2])
+    mock_embeddings.close = AsyncMock()
+
+    mock_ollama = MagicMock()
+    mock_ollama.health_check = AsyncMock(return_value={"status": "healthy", "message": "Available"})
+    mock_ollama.list_models = AsyncMock(return_value=[{"name": "llama3.2:1b", "model": "llama3.2:1b"}])
+    mock_ollama.generate_rag_answer = AsyncMock(return_value={"answer": "Test answer"})
+
+    mock_agentic = MagicMock()
+    mock_agentic.ask = AsyncMock(
+        return_value={
+            "query": "test",
+            "answer": "Test answer",
+            "sources": [],
+            "chunks_used": 0,
+            "search_mode": "bm25",
+            "reasoning_steps": [],
+            "retrieval_attempts": 0,
+            "rewritten_query": None,
+            "session_id": None,
+            "trace_id": None,
+        }
+    )
+
+    settings = Settings()
+    disabled_langfuse = LangfuseTracer(settings)
+
     with (
-        patch("src.db.interfaces.postgresql.PostgreSQLDatabase.startup") as mock_startup,
-        patch("src.db.interfaces.postgresql.PostgreSQLDatabase.get_session") as mock_get_session,
-        patch("src.services.opensearch.factory.make_opensearch_client") as mock_os,
-        patch("src.services.arxiv.factory.make_arxiv_client") as mock_arxiv,
-        patch("src.services.pdf_parser.factory.make_pdf_parser_service") as mock_pdf,
-        patch("src.services.ollama.client.OllamaClient") as mock_ollama,
-        patch("src.repositories.paper.PaperRepository.get_by_arxiv_id") as mock_get_by_id,
+        patch("src.main.make_database", return_value=mock_database),
+        patch("src.main.make_opensearch_client", return_value=mock_opensearch),
+        patch("src.main.make_arxiv_client", return_value=MagicMock()),
+        patch("src.main.make_pdf_parser_service", return_value=MagicMock()),
+        patch("src.main.make_embeddings_service", return_value=mock_embeddings),
+        patch("src.main.make_ollama_client", return_value=mock_ollama),
+        patch("src.main.make_langfuse_tracer", return_value=disabled_langfuse),
+        patch("src.main.make_cache_client", return_value=None),
+        patch("src.main.make_agentic_rag_service", return_value=mock_agentic),
+        patch("src.main.make_telegram_service", return_value=None),
     ):
-        # Mock startup to do nothing
-        mock_startup.return_value = None
-
-        # Mock get_session to return a mock session
-        mock_session = MagicMock()
-        mock_get_session.return_value.__enter__.return_value = mock_session
-        mock_get_session.return_value.__exit__.return_value = None
-
-        # Mock repository methods to return None (not found) by default
-        mock_get_by_id.return_value = None
-
-        # Set up other mock return values
-        mock_os.return_value = AsyncMock()
-        mock_arxiv.return_value = AsyncMock()
-        mock_pdf.return_value = AsyncMock()
-        mock_ollama.return_value = AsyncMock()
-
         async with LifespanManager(app) as manager:
-            async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as client:
-                yield client
+            async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as http_client:
+                yield http_client

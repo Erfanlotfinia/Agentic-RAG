@@ -1,19 +1,57 @@
 services:
-  # API service
-  api:
+  migrate:
     build: .
-    container_name: rag-api
-    ports:
-      - "8000:8000"
+    container_name: falco-migrate
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:${POSTGRES_PASSWORD}@postgres:5432/rag_db
+    command: ["alembic", "upgrade", "head"]
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
+    networks:
+      - falco-network
+
+  airflow-db-init:
+    image: postgres:16-alpine
+    container_name: falco-airflow-db-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      AIRFLOW_POSTGRES_PASSWORD: ${AIRFLOW_POSTGRES_PASSWORD}
+    command:
+      - sh
+      - -ec
+      - |
+        if [ "$$(psql -h postgres -U rag_user -d rag_db -tAc "SELECT 1 FROM pg_roles WHERE rolname='airflow_user'")" = "1" ]; then
+          printf "%s\n" "ALTER ROLE airflow_user WITH LOGIN PASSWORD :'airflow_password';" | psql -h postgres -U rag_user -d rag_db --set=airflow_password="$$AIRFLOW_POSTGRES_PASSWORD"
+        else
+          printf "%s\n" "CREATE ROLE airflow_user WITH LOGIN PASSWORD :'airflow_password';" | psql -h postgres -U rag_user -d rag_db --set=airflow_password="$$AIRFLOW_POSTGRES_PASSWORD"
+        fi
+        if [ "$$(psql -h postgres -U rag_user -d rag_db -tAc "SELECT 1 FROM pg_database WHERE datname='airflow_db'")" != "1" ]; then
+          psql -h postgres -U rag_user -d rag_db -c "CREATE DATABASE airflow_db OWNER airflow_user"
+        fi
+        psql -h postgres -U rag_user -d rag_db -c "ALTER DATABASE airflow_db OWNER TO airflow_user"
+    restart: "no"
+    networks:
+      - falco-network
+
+  api:
+    build: .
+    container_name: falco-api
+    ports:
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       opensearch:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/ready')\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -21,46 +59,45 @@ services:
     env_file:
       - .env
     environment:
-      # Container-specific overrides
       - OPENSEARCH_HOST=http://opensearch:9200
       - OPENSEARCH__HOST=http://opensearch:9200
       - OLLAMA_HOST=http://ollama:11434
-      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:${POSTGRES_PASSWORD}@postgres:5432/rag_db
       - LANGFUSE__HOST=http://langfuse-web:3000
-      - LANGFUSE__DEBUG=true
+      - LANGFUSE__DEBUG=false
       - REDIS__HOST=redis
     networks:
-      - rag-network
+      - falco-network
 
   redis:
     image: redis:7-alpine
-    container_name: rag-redis
+    container_name: falco-redis
     ports:
-      - "6379:6379"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--requirepass", "${REDIS__PASSWORD}"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a '${REDIS__PASSWORD}' ping"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 10s
     restart: unless-stopped
     networks:
-      - rag-network
+      - falco-network
 
   opensearch:
     image: opensearchproject/opensearch:2.19.0
-    container_name: rag-opensearch
+    container_name: falco-opensearch
     environment:
       - discovery.type=single-node
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - DISABLE_SECURITY_PLUGIN=true
       - bootstrap.memory_lock=true
     ports:
-      - "9200:9200"
-      - "9600:9600"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9200:9200"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9600:9600"
     ulimits:
       memlock:
         soft: -1
@@ -75,18 +112,19 @@ services:
       start_period: 60s
     restart: unless-stopped
     networks:
-      - rag-network
+      - falco-network
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.19.0
-    container_name: rag-dashboards
+    container_name: falco-opensearch-dashboards
     ports:
-      - "5601:5601"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5601:5601"
     environment:
       - OPENSEARCH_HOSTS=http://opensearch:9200
       - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
     depends_on:
-      - opensearch
+      opensearch:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
       interval: 30s
@@ -94,25 +132,25 @@ services:
       retries: 5
       start_period: 60s
     networks:
-      - rag-network
+      - falco-network
 
   airflow:
     build:
       context: ./airflow
       dockerfile: Dockerfile
-    container_name: rag-airflow
-    # user: "50000:0"  # Uncomment for WSL/Ubuntu, comment out for Mac
+    container_name: falco-airflow
     depends_on:
-      postgres:
-        condition: service_healthy
+      airflow-db-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
-      # Airflow-specific environment setup
       - AIRFLOW_HOME=/opt/airflow
       - PYTHONPATH=/opt/airflow/src
-      # Container hostnames for Airflow
-      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+      - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:${POSTGRES_PASSWORD}@postgres:5432/rag_db
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow_user:${AIRFLOW_POSTGRES_PASSWORD}@postgres:5432/airflow_db
       - OPENSEARCH_HOST=http://opensearch:9200
       - OPENSEARCH__HOST=http://opensearch:9200
       - OLLAMA_HOST=http://ollama:11434
@@ -121,10 +159,9 @@ services:
       - ./airflow/dags:/opt/airflow/dags
       - airflow_logs:/opt/airflow/logs
       - ./airflow/plugins:/opt/airflow/plugins
-      - ./src:/opt/airflow/src
+      - ./src:/opt/airflow/src:ro
     ports:
-      - "8080:8080"
-    # Command handled by entrypoint.sh
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -132,13 +169,13 @@ services:
       retries: 3
       start_period: 120s
     networks:
-      - rag-network
+      - falco-network
 
   ollama:
     image: ollama/ollama:0.11.2
-    container_name: rag-ollama
+    container_name: falco-ollama
     ports:
-      - "11434:11434"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
@@ -148,19 +185,19 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - rag-network
+      - falco-network
 
   postgres:
     image: postgres:16-alpine
-    container_name: rag-postgres
+    container_name: falco-postgres
     environment:
       - POSTGRES_DB=rag_db
       - POSTGRES_USER=rag_user
-      - POSTGRES_PASSWORD=rag_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_HOST_AUTH_METHOD=password
       - PGDATA=/var/lib/postgresql/data/pgdata
     ports:
-      - "5432:5432"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -171,32 +208,31 @@ services:
       start_period: 30s
     restart: unless-stopped
     networks:
-      - rag-network
+      - falco-network
 
-  # ClickHouse for Langfuse analytics
   clickhouse:
     image: clickhouse/clickhouse-server:24.8-alpine
-    container_name: rag-clickhouse
+    container_name: falco-clickhouse
     environment:
       - CLICKHOUSE_DB=langfuse
       - CLICKHOUSE_USER=langfuse
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
-      - CLICKHOUSE_PASSWORD=langfuse
+      - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      test: ["CMD-SHELL", "clickhouse-client --user langfuse --password '${LANGFUSE_CLICKHOUSE_PASSWORD}' --query 'SELECT 1'"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
     restart: unless-stopped
     networks:
-      - rag-network
+      - falco-network
 
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
-    container_name: rag-langfuse-worker
+    container_name: falco-langfuse-worker
     restart: unless-stopped
     depends_on:
       langfuse-postgres:
@@ -208,11 +244,11 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - "3030:3030"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:3030:3030"
     environment:
-      NEXTAUTH_URL: http://localhost:3001
-      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
-      # Security: Load sensitive values from .env file
+      HOSTNAME: 0.0.0.0
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3001}
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
       SALT: ${LANGFUSE_SALT}
       ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
       TELEMETRY_ENABLED: "false"
@@ -220,7 +256,7 @@ services:
       CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: langfuse
-      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
       CLICKHOUSE_CLUSTER_ENABLED: "false"
       LANGFUSE_USE_AZURE_BLOB: "false"
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
@@ -234,92 +270,99 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_MEDIA_PUBLIC_ENDPOINT:-http://localhost:9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: langfuse-redis
       REDIS_PORT: 6379
       REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD}
       REDIS_TLS_ENABLED: "false"
-    networks:
-      - rag-network
-
-  langfuse-web:
-    image: docker.io/langfuse/langfuse:3
-    container_name: rag-langfuse-web
-    restart: unless-stopped
-    depends_on:
-      langfuse-postgres:
-        condition: service_healthy
-      langfuse-minio:
-        condition: service_healthy
-      langfuse-redis:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    ports:
-      - "3001:3000"
-    environment:
-      NEXTAUTH_URL: http://localhost:3001
-      # Security: Load sensitive values from .env file
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
-      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
-      SALT: ${LANGFUSE_SALT}
-      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
-      TELEMETRY_ENABLED: "false"
-      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
-      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CLICKHOUSE_USER: langfuse
-      CLICKHOUSE_PASSWORD: langfuse
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      LANGFUSE_USE_AZURE_BLOB: "false"
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
-      REDIS_HOST: langfuse-redis
-      REDIS_PORT: 6379
-      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD}
-      REDIS_TLS_ENABLED: "false"
-      LANGFUSE_INIT_ORG_ID: "default-org"
-      LANGFUSE_INIT_ORG_NAME: "RAG Organization"
-      LANGFUSE_INIT_PROJECT_NAME: "Agentic RAG"
-      LANGFUSE_INIT_USER_EMAIL: "admin@example.com"
-      LANGFUSE_INIT_USER_NAME: "Admin User"
-      LANGFUSE_INIT_USER_PASSWORD: "admin123"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3030/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 60s
     networks:
-      - rag-network
+      - falco-network
+
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:3
+    container_name: falco-langfuse-web
+    restart: unless-stopped
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:3001:3000"
+    environment:
+      HOSTNAME: 0.0.0.0
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3001}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/langfuse
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_USE_AZURE_BLOB: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_MEDIA_PUBLIC_ENDPOINT:-http://localhost:9090}
+      LANGFUSE_S3_MEDIA_UPLOAD_INTERNAL_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD}
+      REDIS_TLS_ENABLED: "false"
+      LANGFUSE_INIT_ORG_ID: "falco"
+      LANGFUSE_INIT_ORG_NAME: "Falco"
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/public/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - falco-network
 
   langfuse-postgres:
     image: postgres:17
-    container_name: rag-langfuse-postgres
+    container_name: falco-langfuse-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_USER=langfuse
-      - POSTGRES_PASSWORD=langfuse
+      - POSTGRES_PASSWORD=${LANGFUSE_POSTGRES_PASSWORD}
       - POSTGRES_DB=langfuse
       - POSTGRES_HOST_AUTH_METHOD=password
       - TZ=UTC
       - PGTZ=UTC
     ports:
-      - "5433:5432"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:5433:5432"
     volumes:
       - langfuse_v3_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -329,35 +372,35 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - rag-network
+      - falco-network
 
   langfuse-redis:
     image: docker.io/redis:7
-    container_name: rag-langfuse-redis
+    container_name: falco-langfuse-redis
     restart: unless-stopped
-    command: --requirepass langfuse_redis_password
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD}"]
     ports:
-      - "6380:6379"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:6380:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "langfuse_redis_password", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a '${LANGFUSE_REDIS_PASSWORD}' ping"]
       interval: 3s
       timeout: 10s
       retries: 10
     networks:
-      - rag-network
+      - falco-network
 
   langfuse-minio:
     image: docker.io/minio/minio
-    container_name: rag-langfuse-minio
+    container_name: falco-langfuse-minio
     restart: unless-stopped
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     environment:
-      - MINIO_ROOT_USER=langfuse_minio
-      - MINIO_ROOT_PASSWORD=langfuse_minio_secret
+      - MINIO_ROOT_USER=${LANGFUSE_MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${LANGFUSE_MINIO_SECRET_KEY}
     ports:
-      - "9090:9000"
-      - "9091:9001"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9090:9000"
+      - "${FALCO_BIND_ADDRESS:-127.0.0.1}:9091:9001"
     volumes:
       - langfuse_v3_minio_data:/data
     healthcheck:
@@ -367,7 +410,7 @@ services:
       retries: 10
       start_period: 5s
     networks:
-      - rag-network
+      - falco-network
 
 volumes:
   postgres_data:
@@ -380,5 +423,5 @@ volumes:
   langfuse_v3_minio_data:
 
 networks:
-  rag-network:
+  falco-network:
     driver: bridge

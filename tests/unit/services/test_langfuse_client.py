@@ -2,7 +2,6 @@ from contextlib import contextmanager
 from unittest.mock import Mock
 
 import pytest
-
 from src.services.langfuse.client import LangfuseTracer
 
 

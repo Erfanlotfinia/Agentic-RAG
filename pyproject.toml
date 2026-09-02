@@ -1,7 +1,7 @@
 [project]
 name = "falco"
 version = "1.0.0"
-description = "Falco — Production-ready Agentic RAG system for academic research. Hybrid search, LangGraph agents, and Telegram bot."
+description = "Falco — Self-hosted Agentic RAG for technical research with hybrid retrieval, LangGraph workflows, and multi-channel access."
 authors = [
     {name = "Erfan Falco"},
 ]
@@ -36,9 +36,6 @@ readme = "README.md"
 dev = [
     "anyio[trio]>=4.9.0",
     "asgi-lifespan>=2.1.0",
-    "jupyter>=1.1.1",
-    "mypy>=1.15.0",
-    "notebook>=7.4.4",
     "polyfactory>=2.21.0",
     "pre-commit>=4.2.0",
     "pytest>=8.3.5",
@@ -49,7 +46,6 @@ dev = [
     "pytest-mock>=3.14.0",
     "ruff>=0.11.5",
     "testcontainers>=4.10.0",
-    "types-sqlalchemy>=1.4.53.38",
 ]
 viz = [
     "grandalf>=0.8",
@@ -57,19 +53,11 @@ viz = [
 
 [tool.ruff]
 line-length = 130
-exclude = ["notebooks/**", ".venv/**"]
-src = ["src", "tests"]
-lint.select = [
-  "I",
-]
+exclude = [".venv/**"]
+src = ["src", "tests", "airflow/dags", "alembic"]
+lint.select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 env_files = ".env.test"
-
-[tool.mypy]
-explicit_package_bases = true
-ignore_errors = true
-
-

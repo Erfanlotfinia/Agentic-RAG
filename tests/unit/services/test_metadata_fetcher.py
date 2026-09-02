@@ -1,14 +1,11 @@
-import asyncio
 import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.exceptions import MetadataFetchingException, PipelineException
 from src.schemas.arxiv.paper import ArxivPaper
 from src.schemas.pdf_parser.models import ParserType, PdfContent
 from src.services.arxiv.client import ArxivClient
-from src.services.metadata_fetcher import MetadataFetcher, make_metadata_fetcher
+from src.services.metadata_fetcher import MetadataFetcher
 from src.services.pdf_parser.parser import PDFParserService
 
 

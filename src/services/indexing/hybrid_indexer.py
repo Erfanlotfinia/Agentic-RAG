@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.opensearch.client import OpenSearchClient
@@ -10,32 +10,33 @@ logger = logging.getLogger(__name__)
 
 
 class HybridIndexingService:
-    """Service for indexing papers with chunking and embeddings for hybrid search.
-
-    Orchestrates the process of:
-    1. Chunking papers into overlapping segments
-    2. Generating embeddings for each chunk
-    3. Indexing chunks with embeddings into OpenSearch
-    """
+    """Chunk, embed, and index papers for hybrid retrieval."""
 
     def __init__(self, chunker: TextChunker, embeddings_client: JinaEmbeddingsClient, opensearch_client: OpenSearchClient):
-        """Initialize hybrid indexing service.
-
-        :param chunker: Text chunking service
-        :param embeddings_client: Embeddings generation client
-        :param opensearch_client: OpenSearch client
-        """
         self.chunker = chunker
         self.embeddings_client = embeddings_client
         self.opensearch_client = opensearch_client
-
         logger.info("Hybrid indexing service initialized")
 
-    async def index_paper(self, paper_data: Dict) -> Dict[str, int]:
-        """Index a single paper with chunking and embeddings.
+    async def close(self) -> None:
+        """Close network clients owned by this indexing service."""
+        try:
+            await self.embeddings_client.close()
+        finally:
+            self.opensearch_client.close()
 
-        :param paper_data: Paper data from database
-        :returns: Dictionary with indexing statistics
+    @staticmethod
+    def _document_id(arxiv_id: str, chunk_index: int) -> str:
+        """Build a stable OpenSearch document ID for idempotent paper indexing."""
+        return f"{arxiv_id}:{chunk_index}"
+
+    async def index_paper(self, paper_data: Dict, replace_existing: bool = False) -> Dict[str, int]:
+        """Index one paper without deleting a healthy previous version up front.
+
+        Replacement uses deterministic document IDs. The complete new set is
+        indexed first. Obsolete documents are removed only after every new chunk
+        has been written successfully, so embedding/indexing failures preserve
+        the previously searchable paper.
         """
         arxiv_id = paper_data.get("arxiv_id")
         paper_id = str(paper_data.get("id", ""))
@@ -45,7 +46,6 @@ class HybridIndexingService:
             return {"chunks_created": 0, "chunks_indexed": 0, "embeddings_generated": 0, "errors": 1}
 
         try:
-            # Step 1: Chunk the paper using hybrid section-based approach
             chunks = self.chunker.chunk_paper(
                 title=paper_data.get("title", ""),
                 abstract=paper_data.get("abstract", ""),
@@ -56,28 +56,30 @@ class HybridIndexingService:
             )
 
             if not chunks:
-                logger.warning(f"No chunks created for paper {arxiv_id}")
-                return {"chunks_created": 0, "chunks_indexed": 0, "embeddings_generated": 0, "errors": 0}
+                logger.error("No retrievable chunks created for paper %s", arxiv_id)
+                return {"chunks_created": 0, "chunks_indexed": 0, "embeddings_generated": 0, "errors": 1}
 
-            logger.info(f"Created {len(chunks)} chunks for paper {arxiv_id}")
+            logger.info("Created %s chunks for paper %s", len(chunks), arxiv_id)
 
-            # Step 2: Generate embeddings for chunks
             chunk_texts = [chunk.text for chunk in chunks]
-            embeddings = await self.embeddings_client.embed_passages(
-                texts=chunk_texts,
-                batch_size=50,  # Process in batches
-            )
+            embeddings = await self.embeddings_client.embed_passages(texts=chunk_texts, batch_size=50)
 
             if len(embeddings) != len(chunks):
-                logger.error(f"Embedding count mismatch: {len(embeddings)} != {len(chunks)}")
-                return {"chunks_created": len(chunks), "chunks_indexed": 0, "embeddings_generated": len(embeddings), "errors": 1}
+                logger.error("Embedding count mismatch for %s: %s != %s", arxiv_id, len(embeddings), len(chunks))
+                return {
+                    "chunks_created": len(chunks),
+                    "chunks_indexed": 0,
+                    "embeddings_generated": len(embeddings),
+                    "errors": 1,
+                }
 
-            # Step 3: Prepare chunks with embeddings for indexing
             chunks_with_embeddings = []
-
+            document_ids = []
             for chunk, embedding in zip(chunks, embeddings):
-                # Prepare chunk data for OpenSearch
+                document_id = self._document_id(arxiv_id, chunk.metadata.chunk_index)
+                document_ids.append(document_id)
                 chunk_data = {
+                    "chunk_id": document_id,
                     "arxiv_id": chunk.arxiv_id,
                     "paper_id": chunk.paper_id,
                     "chunk_index": chunk.metadata.chunk_index,
@@ -87,7 +89,6 @@ class HybridIndexingService:
                     "end_char": chunk.metadata.end_char,
                     "section_title": chunk.metadata.section_title,
                     "embedding_model": "jina-embeddings-v3",
-                    # Denormalized paper metadata for efficient search
                     "title": paper_data.get("title", ""),
                     "authors": ", ".join(paper_data.get("authors", []))
                     if isinstance(paper_data.get("authors"), list)
@@ -96,34 +97,42 @@ class HybridIndexingService:
                     "categories": paper_data.get("categories", []),
                     "published_date": paper_data.get("published_date"),
                 }
+                chunks_with_embeddings.append(
+                    {"document_id": document_id, "chunk_data": chunk_data, "embedding": embedding}
+                )
 
-                chunks_with_embeddings.append({"chunk_data": chunk_data, "embedding": embedding})
-
-            # Step 4: Index chunks into OpenSearch
             results = self.opensearch_client.bulk_index_chunks(chunks_with_embeddings)
+            failed = results["failed"]
+            logger.info(
+                "Indexed paper %s: %s chunks successful, %s failed",
+                arxiv_id,
+                results["success"],
+                failed,
+            )
 
-            logger.info(f"Indexed paper {arxiv_id}: {results['success']} chunks successful, {results['failed']} failed")
+            errors = failed
+            if results["success"] != len(chunks):
+                errors = max(errors, 1)
+
+            if errors == 0 and replace_existing:
+                self.opensearch_client.delete_stale_paper_chunks(arxiv_id, document_ids)
 
             return {
                 "chunks_created": len(chunks),
                 "chunks_indexed": results["success"],
                 "embeddings_generated": len(embeddings),
-                "errors": results["failed"],
+                "errors": errors,
             }
 
-        except Exception as e:
-            logger.error(f"Error indexing paper {arxiv_id}: {e}")
+        except Exception:
+            logger.exception("Error indexing paper %s", arxiv_id)
             return {"chunks_created": 0, "chunks_indexed": 0, "embeddings_generated": 0, "errors": 1}
 
     async def index_papers_batch(self, papers: List[Dict], replace_existing: bool = False) -> Dict[str, int]:
-        """Index multiple papers in batch.
-
-        :param papers: List of paper data
-        :param replace_existing: If True, delete existing chunks before indexing
-        :returns: Aggregated statistics
-        """
+        """Index multiple papers and aggregate per-paper error counts."""
         total_stats = {
             "papers_processed": 0,
+            "papers_failed": 0,
             "total_chunks_created": 0,
             "total_chunks_indexed": 0,
             "total_embeddings_generated": 0,
@@ -131,40 +140,27 @@ class HybridIndexingService:
         }
 
         for paper in papers:
-            arxiv_id = paper.get("arxiv_id")
+            stats = await self.index_paper(paper, replace_existing=replace_existing)
 
-            # Optionally delete existing chunks
-            if replace_existing and arxiv_id:
-                self.opensearch_client.delete_paper_chunks(arxiv_id)
-
-            # Index the paper
-            stats = await self.index_paper(paper)
-
-            # Update totals
             total_stats["papers_processed"] += 1
             total_stats["total_chunks_created"] += stats["chunks_created"]
             total_stats["total_chunks_indexed"] += stats["chunks_indexed"]
             total_stats["total_embeddings_generated"] += stats["embeddings_generated"]
             total_stats["total_errors"] += stats["errors"]
+            if stats["errors"] > 0:
+                total_stats["papers_failed"] += 1
 
         logger.info(
-            f"Batch indexing complete: {total_stats['papers_processed']} papers, "
-            f"{total_stats['total_chunks_indexed']} chunks indexed"
+            "Batch indexing complete: %s papers processed, %s failed, %s chunks indexed",
+            total_stats["papers_processed"],
+            total_stats["papers_failed"],
+            total_stats["total_chunks_indexed"],
         )
-
         return total_stats
 
     async def reindex_paper(self, arxiv_id: str, paper_data: Dict) -> Dict[str, int]:
-        """Reindex a paper by deleting old chunks and creating new ones.
-
-        :param arxiv_id: ArXiv ID of the paper
-        :param paper_data: Updated paper data
-        :returns: Indexing statistics
-        """
-        # Delete existing chunks
-        deleted = self.opensearch_client.delete_paper_chunks(arxiv_id)
-        if deleted:
-            logger.info(f"Deleted existing chunks for paper {arxiv_id}")
-
-        # Index with new data
-        return await self.index_paper(paper_data)
+        """Safely replace a paper's retrieval documents after the new set succeeds."""
+        if paper_data.get("arxiv_id") and paper_data["arxiv_id"] != arxiv_id:
+            raise ValueError("paper_data arxiv_id does not match the requested paper")
+        paper_data = {**paper_data, "arxiv_id": arxiv_id}
+        return await self.index_paper(paper_data, replace_existing=True)
